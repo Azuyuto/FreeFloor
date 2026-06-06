@@ -6,6 +6,7 @@ export type DuelSyncInfo = {
   category: string;
   status: string;
   currentTurnNickname: string;
+  imageIndex: number;
 };
 
 type ServerSyncState = {

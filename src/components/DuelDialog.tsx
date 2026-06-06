@@ -143,13 +143,14 @@ export default function DuelDialog() {
           mediaRevision: revision,
           currentImage: image,
           nextImage,
-          duelInfo: duelActive && attacker && defender && currentTurn
+          duelInfo: duelActive && attacker && defender && currentTurn && state.duel
             ? {
                 attackerNickname: attacker.nickname,
                 defenderNickname: defender.nickname,
                 category: defender.category,
                 status: state.status,
                 currentTurnNickname: currentTurn.nickname,
+                imageIndex: state.duel.imageIndex,
               }
             : null,
         }),

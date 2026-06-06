@@ -1,12 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatDisplayLabel, getImageNameFromPath } from "@/lib/imageUtils";
 import type { DuelSyncInfo } from "@/lib/serverSync";
+import type { Category } from "@/lib/types";
 import MediaPreview from "./MediaPreview";
 import AdminGameSettings from "./AdminGameSettings";
 import AdminCombatants from "./AdminCombatants";
+
+function resolveDuelMedia(
+  categories: Category[],
+  duel: DuelSyncInfo | null
+): { currentImage: string | null; nextImage: string | null } {
+  if (!duel) return { currentImage: null, nextImage: null };
+
+  const category = categories.find(c => c.id === duel.category);
+  if (!category || category.images.length === 0) {
+    return { currentImage: null, nextImage: null };
+  }
+
+  const idx = duel.imageIndex ?? 0;
+  const currentImage = idx < category.images.length ? category.images[idx] : null;
+  const nextImage = idx + 1 < category.images.length ? category.images[idx + 1] : null;
+  return { currentImage, nextImage };
+}
 
 type SyncSnapshot = {
   currentImage: string | null;
@@ -20,6 +38,7 @@ type SyncSnapshot = {
 
 export default function AdminControls() {
   const [sync, setSync] = useState<SyncSnapshot | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [actionPending, setActionPending] = useState(false);
   const [drawPending, setDrawPending] = useState(false);
   const [cancelPending, setCancelPending] = useState(false);
@@ -32,24 +51,36 @@ export default function AdminControls() {
       const res = await fetch("/api/sync");
       const data: SyncSnapshot = await res.json();
       const mediaRevision = data.mediaRevision ?? 0;
+
+      // Po restarcie serwera (np. deploy na Railway) licznik wraca do 0.
+      if (mediaRevision < lastMediaRevisionRef.current) {
+        lastMediaRevisionRef.current = 0;
+      }
+
       if (mediaRevision >= lastMediaRevisionRef.current) {
         lastMediaRevisionRef.current = mediaRevision;
         setSync(data);
-      } else {
-        setSync(prev =>
-          prev
-            ? {
-                ...data,
-                currentImage: prev.currentImage,
-                nextImage: prev.nextImage,
-                mediaRevision: prev.mediaRevision,
-              }
-            : data
-        );
       }
     } catch {
       setSync(null);
     }
+  }, []);
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const res = await fetch("/api/categories");
+        if (!res.ok) return;
+        const data: Category[] = await res.json();
+        setCategories(data);
+      } catch {
+        setCategories([]);
+      }
+    };
+
+    void loadCategories();
+    const intervalId = window.setInterval(loadCategories, 10_000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   const sendAction = useCallback(async (action: "correct" | "wrong") => {
@@ -116,8 +147,14 @@ export default function AdminControls() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const currentImageName = getImageNameFromPath(sync?.currentImage ?? null);
   const duel = sync?.duelInfo;
+  const resolvedMedia = useMemo(
+    () => resolveDuelMedia(categories, duel ?? null),
+    [categories, duel]
+  );
+  const currentImage = resolvedMedia.currentImage ?? sync?.currentImage ?? null;
+  const nextImage = resolvedMedia.nextImage ?? sync?.nextImage ?? null;
+  const currentImageName = getImageNameFromPath(currentImage);
   const canControl = !!duel;
 
   canControlRef.current = canControl;
@@ -147,8 +184,8 @@ export default function AdminControls() {
       )}
 
       <div className="flex justify-center gap-4">
-        <MediaPreview src={sync?.currentImage ?? null} label="Teraz" size="admin" />
-        <MediaPreview src={sync?.nextImage ?? null} label="Następne" size="admin" />
+        <MediaPreview src={currentImage} label="Teraz" size="admin" />
+        <MediaPreview src={nextImage} label="Następne" size="admin" />
       </div>
 
       <p className="rounded border bg-background px-3 py-2.5 text-center text-base font-semibold leading-tight">
