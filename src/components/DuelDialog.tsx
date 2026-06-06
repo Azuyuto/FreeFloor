@@ -17,6 +17,7 @@ import {
 } from "@/lib/adminActionBridge";
 import { formatDisplayLabel, getImageNameFromPath } from "@/lib/imageUtils";
 import { shuffleArray } from "@/lib/shuffleArray";
+import { playGameSound, preloadGameSounds, unlockGameSounds } from "@/lib/gameSounds";
 
 export default function DuelDialog() {
   const { state, dispatch } = useGameContext();
@@ -32,8 +33,6 @@ export default function DuelDialog() {
   const onCloseRef = useRef<() => void>(() => {});
   const answeringRef = useRef(false);
   const duelSessionRef = useRef<string | null>(null);
-  const mediaRevisionRef = useRef(0);
-  const syncQueueRef = useRef(Promise.resolve());
   const hadDuelRef = useRef(false);
   const categoriesRevisionRef = useRef(0);
   const [buttonsDisabled, setButtonsDisabled] = useState(false);
@@ -69,13 +68,16 @@ export default function DuelDialog() {
     setShowWinner(false);
   };
 
-  const playSound = (file: string) => {
-    const audio = new window.Audio(`/sounds/${file}`);
-    audio.currentTime = 0;
-    audio.play();
-    // Automatyczne wstrzymanie po 0.5s (jeśli efekt długi)
-    setTimeout(() => audio.pause(), 500);
-  };
+  useEffect(() => {
+    preloadGameSounds();
+    const unlock = () => unlockGameSounds();
+    window.addEventListener("pointerdown", unlock, { capture: true });
+    window.addEventListener("keydown", unlock, { capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock, { capture: true });
+      window.removeEventListener("keydown", unlock, { capture: true });
+    };
+  }, []);
 
   useEffect(() => {
     if (state.duel) {
@@ -117,50 +119,6 @@ export default function DuelDialog() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [buttonsDisabled, state.duel]);
 
-  const getDuelImageQueue = () => state.duel?.imageQueue ?? [];
-
-  const getNextImagePath = () => {
-    if (!state.duel) return null;
-    const queue = getDuelImageQueue();
-    const nextIdx = state.duel.imageIndex + 1;
-    if (nextIdx >= queue.length) return null;
-    return queue[nextIdx];
-  };
-
-  const syncToServer = (
-    image: string | null,
-    nextImage: string | null,
-    duelActive: boolean
-  ) => {
-    const attacker = state.duel ? state.players[state.duel.attackerId] : null;
-    const defender = state.duel ? state.players[state.duel.defenderId] : null;
-    const currentTurn = state.duel ? state.players[state.duel.currentTurn] : null;
-    const revision = ++mediaRevisionRef.current;
-
-    syncQueueRef.current = syncQueueRef.current.then(async () => {
-      await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mediaRevision: revision,
-          currentImage: image,
-          nextImage,
-          duelInfo: duelActive && attacker && defender && currentTurn && state.duel
-            ? {
-                attackerNickname: attacker.nickname,
-                defenderNickname: defender.nickname,
-                category: defender.category,
-                status: state.status,
-                currentTurnNickname: currentTurn.nickname,
-                imageIndex: state.duel.imageIndex,
-                imageQueue: state.duel.imageQueue,
-              }
-            : null,
-        }),
-      });
-    });
-  };
-
   useEffect(() => {
     registerAdminActionHandlers({
       onCorrect: () => onCorrectRef.current({ fromAdmin: true }),
@@ -168,23 +126,6 @@ export default function DuelDialog() {
     });
     return () => clearAdminActionHandlers();
   }, []);
-
-  useEffect(() => {
-    if (!state.duel) {
-      void syncToServer(null, null, false);
-      return;
-    }
-    void syncToServer(currentImage, getNextImagePath(), true);
-  }, [
-    currentImage,
-    state.duel?.attackerId,
-    state.duel?.defenderId,
-    state.duel?.currentTurn,
-    state.duel?.imageIndex,
-    state.duel?.imageQueue,
-    state.status,
-    categories,
-  ]);
 
     useEffect(() => {
     if (!currentImage) return;
@@ -375,7 +316,7 @@ export default function DuelDialog() {
     answeringRef.current = true;
     setShowResult({ type: "correct", message: imageName });
     setButtonsDisabled(true);
-    playSound("good.mp3");
+    playGameSound("good.mp3");
     dispatch(g => {
       g.lockTick();
     });
@@ -406,7 +347,7 @@ export default function DuelDialog() {
     answeringRef.current = true;
     setShowResult({ type: "wrong", message: imageName });
     setButtonsDisabled(true);
-    playSound("bad.mp3");
+    playGameSound("bad.mp3");
 
     clearPendingAnswerTimeout();
     answerTimeoutRef.current = window.setTimeout(() => {

@@ -104,7 +104,8 @@ export function updateDuelMedia(payload: {
   duelInfo?: DuelSyncInfo | null;
 }): boolean {
   const state = getState();
-  if (payload.mediaRevision <= state.mediaRevision) {
+  const clearingDuel = payload.duelInfo === null;
+  if (payload.mediaRevision <= state.mediaRevision && !clearingDuel) {
     return false;
   }
   state.currentImage = payload.currentImage;
@@ -112,7 +113,7 @@ export function updateDuelMedia(payload: {
   if (payload.duelInfo !== undefined) {
     state.duelInfo = payload.duelInfo;
   }
-  state.mediaRevision = payload.mediaRevision;
+  state.mediaRevision = Math.max(state.mediaRevision + (clearingDuel ? 1 : 0), payload.mediaRevision);
   state.updatedAt = Date.now();
   return true;
 }

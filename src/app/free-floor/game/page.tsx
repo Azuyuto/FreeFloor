@@ -12,6 +12,7 @@ import { useGameConfigStore } from "@/stores/useGameConfigStore";
 import AttackerDrawListener from "@/components/AttackerDrawListener";
 import StartDuelListener from "@/components/StartDuelListener";
 import CancelDuelListener from "@/components/CancelDuelListener";
+import GameSyncPublisher from "@/components/GameSyncPublisher";
 import { useEffect, useState } from "react";
 
 export default function GamePage() {
@@ -44,6 +45,7 @@ export default function GamePage() {
         <AttackerDrawListener />
         <StartDuelListener />
         <CancelDuelListener />
+        <GameSyncPublisher />
         <DuelDialog />
       </main>
     </GameProvider>

@@ -50,36 +50,13 @@ export default function AdminControls() {
   const [cancelPending, setCancelPending] = useState(false);
   const sendActionRef = useRef<(action: "correct" | "wrong") => void>(() => {});
   const canControlRef = useRef(false);
-  const lastMediaRevisionRef = useRef(0);
-  const lastUpdatedAtRef = useRef(0);
-  const lastCancelDuelTokenRef = useRef(0);
   const lastCategoriesRevisionRef = useRef(0);
 
   const fetchSync = useCallback(async () => {
     try {
-      const res = await fetch("/api/sync");
+      const res = await fetch("/api/sync", { cache: "no-store" });
       const data: SyncSnapshot = await res.json();
-      const mediaRevision = data.mediaRevision ?? 0;
-      const updatedAt = data.updatedAt ?? 0;
-      const cancelDuelToken = data.cancelDuelToken ?? 0;
-
-      // Po restarcie serwera (np. deploy na Railway) licznik wraca do 0.
-      if (mediaRevision < lastMediaRevisionRef.current) {
-        lastMediaRevisionRef.current = 0;
-      }
-
-      const duelWasCancelled = cancelDuelToken > lastCancelDuelTokenRef.current;
-      const hasNewerSnapshot =
-        mediaRevision >= lastMediaRevisionRef.current ||
-        updatedAt >= lastUpdatedAtRef.current ||
-        duelWasCancelled;
-
-      if (hasNewerSnapshot) {
-        lastMediaRevisionRef.current = Math.max(lastMediaRevisionRef.current, mediaRevision);
-        lastUpdatedAtRef.current = Math.max(lastUpdatedAtRef.current, updatedAt);
-        lastCancelDuelTokenRef.current = Math.max(lastCancelDuelTokenRef.current, cancelDuelToken);
-        setSync(data);
-      }
+      setSync(data);
     } catch {
       setSync(null);
     }
@@ -142,9 +119,6 @@ export default function AdminControls() {
       if (!res.ok) return;
       const data: SyncSnapshot = await res.json();
       setSync(data);
-      lastMediaRevisionRef.current = data.mediaRevision ?? lastMediaRevisionRef.current;
-      lastUpdatedAtRef.current = data.updatedAt ?? lastUpdatedAtRef.current;
-      lastCancelDuelTokenRef.current = data.cancelDuelToken ?? lastCancelDuelTokenRef.current;
     } finally {
       setCancelPending(false);
     }
@@ -153,10 +127,28 @@ export default function AdminControls() {
   sendActionRef.current = sendAction;
 
   useEffect(() => {
-    fetchSync();
-    const intervalId = window.setInterval(fetchSync, 200);
-    return () => window.clearInterval(intervalId);
-  }, [fetchSync]);
+    void fetchSync();
+    void loadCategories();
+
+    const intervalId = window.setInterval(() => {
+      void fetchSync();
+    }, 200);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void fetchSync();
+        void loadCategories();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [fetchSync, loadCategories]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -176,13 +168,17 @@ export default function AdminControls() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const duel = sync?.duelInfo;
+  const duel = sync?.duelInfo ?? null;
   const resolvedMedia = useMemo(
-    () => resolveDuelMedia(categories, duel ?? null),
+    () => resolveDuelMedia(categories, duel),
     [categories, duel]
   );
-  const currentImage = resolvedMedia.currentImage ?? sync?.currentImage ?? null;
-  const nextImage = resolvedMedia.nextImage ?? sync?.nextImage ?? null;
+  const currentImage = duel
+    ? (sync?.currentImage ?? resolvedMedia.currentImage ?? null)
+    : null;
+  const nextImage = duel
+    ? (sync?.nextImage ?? resolvedMedia.nextImage ?? null)
+    : null;
   const currentImageName = getImageNameFromPath(currentImage);
   const canControl = !!duel;
 
@@ -207,6 +203,11 @@ export default function AdminControls() {
           <p className="mt-2 text-lg font-bold leading-tight text-foreground">
             {formatDisplayLabel(duel.category)}
           </p>
+          {duel.status !== "duel" && (
+            <p className="mt-1 text-muted-foreground">
+              Status: <strong className="text-foreground">{duel.status}</strong>
+            </p>
+          )}
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">Brak aktywnego pojedynku</p>
