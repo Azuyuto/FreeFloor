@@ -1,0 +1,11 @@
+services:
+  free-floor:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./public/categories:/app/public/categories
+      - ./public/avatars:/app/public/avatars
+      - ./public/sounds:/app/public/sounds
+    restart: unless-stopped
