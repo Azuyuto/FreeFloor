@@ -14,8 +14,8 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+# Railway nadpisuje PORT w runtime — nie ustawiaj tu stałej wartości.
 
 # sharp (next/image) na Alpine
 RUN apk add --no-cache libc6-compat
@@ -33,4 +33,4 @@ RUN mkdir -p public/categories public/avatars public/sounds && \
 
 USER nextjs
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "echo \"Listening on ${HOSTNAME:-0.0.0.0}:${PORT}\" && exec node server.js"]
