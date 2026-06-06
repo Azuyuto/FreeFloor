@@ -1,39 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatDisplayLabel, getImageNameFromPath } from "@/lib/imageUtils";
 import type { DuelSyncInfo } from "@/lib/serverSync";
-import type { Category } from "@/lib/types";
+import { useSyncPoll } from "@/hooks/useSyncPoll";
 import MediaPreview from "./MediaPreview";
 import AdminGameSettings from "./AdminGameSettings";
 import AdminCombatants from "./AdminCombatants";
 
-function resolveDuelMedia(
-  categories: Category[],
-  duel: DuelSyncInfo | null
-): { currentImage: string | null; nextImage: string | null } {
-  if (!duel) return { currentImage: null, nextImage: null };
-
-  const idx = duel.imageIndex ?? 0;
-  const queue =
-    duel.imageQueue?.length > 0
-      ? duel.imageQueue
-      : (categories.find(c => c.id === duel.category)?.images ?? []);
-
-  if (queue.length === 0) {
-    return { currentImage: null, nextImage: null };
-  }
-
-  const currentImage = idx < queue.length ? queue[idx] : null;
-  const nextImage = idx + 1 < queue.length ? queue[idx + 1] : null;
-  return { currentImage, nextImage };
-}
-
 type SyncSnapshot = {
   currentImage: string | null;
   nextImage: string | null;
-  mediaRevision: number;
+  syncGeneration: number;
   pendingAction: string | null;
   duelInfo: DuelSyncInfo | null;
   playersUpdatedAt: number;
@@ -43,8 +22,6 @@ type SyncSnapshot = {
 };
 
 export default function AdminControls() {
-  const [sync, setSync] = useState<SyncSnapshot | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [actionPending, setActionPending] = useState(false);
   const [drawPending, setDrawPending] = useState(false);
   const [cancelPending, setCancelPending] = useState(false);
@@ -53,37 +30,12 @@ export default function AdminControls() {
   const lastCategoriesRevisionRef = useRef(0);
 
   const fetchSync = useCallback(async () => {
-    try {
-      const res = await fetch("/api/sync", { cache: "no-store" });
-      const data: SyncSnapshot = await res.json();
-      setSync(data);
-    } catch {
-      setSync(null);
-    }
+    const res = await fetch(`/api/sync?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("sync failed");
+    return (await res.json()) as SyncSnapshot;
   }, []);
 
-  const loadCategories = useCallback(async () => {
-    try {
-      const res = await fetch("/api/categories");
-      if (!res.ok) return;
-      const data: Category[] = await res.json();
-      setCategories(data);
-    } catch {
-      setCategories([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadCategories();
-  }, [loadCategories]);
-
-  useEffect(() => {
-    const revision = sync?.categoriesRevision ?? 0;
-    if (revision > lastCategoriesRevisionRef.current) {
-      lastCategoriesRevisionRef.current = revision;
-      void loadCategories();
-    }
-  }, [sync?.categoriesRevision, loadCategories]);
+  const { data: sync, refresh } = useSyncPoll(fetchSync, { intervalMs: 100 });
 
   const sendAction = useCallback(async (action: "correct" | "wrong") => {
     if (!canControlRef.current) return;
@@ -95,16 +47,17 @@ export default function AdminControls() {
         body: JSON.stringify({ action }),
       });
       if (!res.ok) return;
-      await fetchSync();
+      await refresh();
     } finally {
       setActionPending(false);
     }
-  }, [fetchSync]);
+  }, [refresh]);
 
   const requestDraw = async () => {
     setDrawPending(true);
     try {
       await fetch("/api/admin/game/draw-attacker", { method: "POST" });
+      await refresh();
     } finally {
       setDrawPending(false);
     }
@@ -117,8 +70,8 @@ export default function AdminControls() {
     try {
       const res = await fetch("/api/admin/game/cancel-duel", { method: "POST" });
       if (!res.ok) return;
-      const data: SyncSnapshot = await res.json();
-      setSync(data);
+      await res.json();
+      await refresh();
     } finally {
       setCancelPending(false);
     }
@@ -127,28 +80,11 @@ export default function AdminControls() {
   sendActionRef.current = sendAction;
 
   useEffect(() => {
-    void fetchSync();
-    void loadCategories();
-
-    const intervalId = window.setInterval(() => {
-      void fetchSync();
-    }, 200);
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        void fetchSync();
-        void loadCategories();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
-
-    return () => {
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
-    };
-  }, [fetchSync, loadCategories]);
+    const revision = sync?.categoriesRevision ?? 0;
+    if (revision > lastCategoriesRevisionRef.current) {
+      lastCategoriesRevisionRef.current = revision;
+    }
+  }, [sync?.categoriesRevision]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -169,16 +105,8 @@ export default function AdminControls() {
   }, []);
 
   const duel = sync?.duelInfo ?? null;
-  const resolvedMedia = useMemo(
-    () => resolveDuelMedia(categories, duel),
-    [categories, duel]
-  );
-  const currentImage = duel
-    ? (sync?.currentImage ?? resolvedMedia.currentImage ?? null)
-    : null;
-  const nextImage = duel
-    ? (sync?.nextImage ?? resolvedMedia.nextImage ?? null)
-    : null;
+  const currentImage = duel ? (sync?.currentImage ?? null) : null;
+  const nextImage = duel ? (sync?.nextImage ?? null) : null;
   const currentImageName = getImageNameFromPath(currentImage);
   const canControl = !!duel;
 

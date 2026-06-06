@@ -13,7 +13,7 @@ export type DuelSyncInfo = {
 type ServerSyncState = {
   currentImage: string | null;
   nextImage: string | null;
-  mediaRevision: number;
+  syncGeneration: number;
   pendingAction: AdminAction | null;
   duelInfo: DuelSyncInfo | null;
   selectedAttackerId: string | null;
@@ -38,7 +38,7 @@ function getState(): ServerSyncState {
     globalForSync.__freeFloorSync = {
       currentImage: null,
       nextImage: null,
-      mediaRevision: 0,
+      syncGeneration: 0,
       pendingAction: null,
       duelInfo: null,
       selectedAttackerId: null,
@@ -57,12 +57,17 @@ function getState(): ServerSyncState {
   return globalForSync.__freeFloorSync;
 }
 
+function bumpSync(state: ServerSyncState) {
+  state.syncGeneration += 1;
+  state.updatedAt = Date.now();
+}
+
 export function getSyncSnapshot() {
   const state = getState();
   return {
     currentImage: state.currentImage,
     nextImage: state.nextImage,
-    mediaRevision: state.mediaRevision,
+    syncGeneration: state.syncGeneration,
     pendingAction: state.pendingAction,
     duelInfo: state.duelInfo,
     selectedAttackerId: state.selectedAttackerId,
@@ -79,62 +84,54 @@ export function getSyncSnapshot() {
   };
 }
 
+/** Gra zawsze nadpisuje pełny stan — bez kolejkowania po revision z klienta. */
+export function applyGameSync(payload: {
+  currentImage: string | null;
+  nextImage: string | null;
+  duelInfo: DuelSyncInfo | null;
+}) {
+  const state = getState();
+  state.currentImage = payload.currentImage;
+  state.nextImage = payload.nextImage;
+  state.duelInfo = payload.duelInfo;
+  bumpSync(state);
+}
+
 export function setCurrentImage(image: string | null) {
   const state = getState();
   state.currentImage = image;
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function setNextImage(image: string | null) {
   const state = getState();
   state.nextImage = image;
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function setDuelInfo(info: DuelSyncInfo | null) {
   const state = getState();
   state.duelInfo = info;
-  state.updatedAt = Date.now();
-}
-
-export function updateDuelMedia(payload: {
-  mediaRevision: number;
-  currentImage: string | null;
-  nextImage: string | null;
-  duelInfo?: DuelSyncInfo | null;
-}): boolean {
-  const state = getState();
-  const clearingDuel = payload.duelInfo === null;
-  if (payload.mediaRevision <= state.mediaRevision && !clearingDuel) {
-    return false;
-  }
-  state.currentImage = payload.currentImage;
-  state.nextImage = payload.nextImage;
-  if (payload.duelInfo !== undefined) {
-    state.duelInfo = payload.duelInfo;
-  }
-  state.mediaRevision = Math.max(state.mediaRevision + (clearingDuel ? 1 : 0), payload.mediaRevision);
-  state.updatedAt = Date.now();
-  return true;
+  bumpSync(state);
 }
 
 export function queueAdminAction(action: AdminAction) {
   const state = getState();
   state.pendingAction = action;
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function setSelectedCombatants(attackerId: string | null, defenderId: string | null) {
   const state = getState();
   state.selectedAttackerId = attackerId;
   state.selectedDefenderId = defenderId;
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function requestDrawAttacker() {
   const state = getState();
   state.drawAttackerToken = Date.now();
-  state.updatedAt = Date.now();
+  bumpSync(state);
   return state.drawAttackerToken;
 }
 
@@ -142,7 +139,7 @@ export function requestStartDuel(attackerId: string, defenderId: string) {
   const state = getState();
   state.pendingStartDuel = { attackerId, defenderId };
   state.startDuelToken = Date.now();
-  state.updatedAt = Date.now();
+  bumpSync(state);
   return state.startDuelToken;
 }
 
@@ -153,8 +150,7 @@ export function clearDuelSyncState() {
   state.nextImage = null;
   state.pendingAction = null;
   state.pendingStartDuel = null;
-  state.mediaRevision += 1;
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function requestCancelDuel() {
@@ -167,25 +163,25 @@ export function requestCancelDuel() {
 export function touchPlayersUpdated() {
   const state = getState();
   state.playersUpdatedAt = Date.now();
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function setGridSize(size: number) {
   const state = getState();
   state.gridSize = size;
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function touchConfigUpdated() {
   const state = getState();
   state.configUpdatedAt = Date.now();
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function touchCategoriesUpdated() {
   const state = getState();
   state.categoriesRevision = Date.now();
-  state.updatedAt = Date.now();
+  bumpSync(state);
 }
 
 export function consumePendingAction(): AdminAction | null {
@@ -193,7 +189,7 @@ export function consumePendingAction(): AdminAction | null {
   const action = state.pendingAction;
   state.pendingAction = null;
   if (action) {
-    state.updatedAt = Date.now();
+    bumpSync(state);
   }
   return action;
 }

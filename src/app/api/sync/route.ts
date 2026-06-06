@@ -1,28 +1,33 @@
 import { NextResponse } from "next/server";
 import {
+  applyGameSync,
   consumePendingAction,
   getSyncSnapshot,
   setCurrentImage,
   setDuelInfo,
   setNextImage,
   setSelectedCombatants,
-  updateDuelMedia,
   type DuelSyncInfo,
 } from "@/lib/serverSync";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
-  return NextResponse.json(getSyncSnapshot());
+  return NextResponse.json(getSyncSnapshot(), {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    },
+  });
 }
 
 export async function POST(request: Request) {
   const body = await request.json();
 
-  if (typeof body.mediaRevision === "number") {
-    updateDuelMedia({
-      mediaRevision: body.mediaRevision,
+  if (body.source === "game") {
+    applyGameSync({
       currentImage: body.currentImage ?? null,
       nextImage: body.nextImage ?? null,
-      duelInfo: "duelInfo" in body ? ((body.duelInfo as DuelSyncInfo | null) ?? null) : undefined,
+      duelInfo: (body.duelInfo as DuelSyncInfo | null) ?? null,
     });
   } else {
     if ("currentImage" in body) {

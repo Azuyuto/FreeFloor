@@ -6,11 +6,13 @@ import { useGameStore } from "@/stores/useGameStore";
 import type { GameState } from "@/lib/types";
 import type { DuelSyncInfo } from "@/lib/serverSync";
 
-function buildDuelPayload(state: GameState): {
+export type GameSyncPayload = {
   currentImage: string | null;
   nextImage: string | null;
   duelInfo: DuelSyncInfo | null;
-} {
+};
+
+export function buildGameSyncPayload(state: GameState): GameSyncPayload {
   const duel = state.duel;
   if (!duel) {
     return { currentImage: null, nextImage: null, duelInfo: null };
@@ -25,7 +27,8 @@ function buildDuelPayload(state: GameState): {
 
   const queue = duel.imageQueue;
   const idx = duel.imageIndex;
-  const currentImage = useGameStore.getState().currentImage ?? (queue[idx] ?? null);
+  const currentImage =
+    queue.length > 0 ? (queue[idx] ?? null) : useGameStore.getState().currentImage;
   const nextImage = idx + 1 < queue.length ? queue[idx + 1] : null;
 
   return {
@@ -43,32 +46,66 @@ function buildDuelPayload(state: GameState): {
   };
 }
 
+function payloadsEqual(a: GameSyncPayload, b: GameSyncPayload) {
+  return (
+    a.currentImage === b.currentImage &&
+    a.nextImage === b.nextImage &&
+    a.duelInfo?.imageIndex === b.duelInfo?.imageIndex &&
+    a.duelInfo?.status === b.duelInfo?.status &&
+    a.duelInfo?.currentTurnNickname === b.duelInfo?.currentTurnNickname &&
+    a.duelInfo?.attackerNickname === b.duelInfo?.attackerNickname &&
+    a.duelInfo?.defenderNickname === b.duelInfo?.defenderNickname &&
+    (a.duelInfo === null) === (b.duelInfo === null)
+  );
+}
+
 export default function GameSyncPublisher() {
   const { state } = useGameContext();
   const stateRef = useRef(state);
-  const mediaRevisionRef = useRef(0);
-  const syncQueueRef = useRef(Promise.resolve());
+  const latestPayloadRef = useRef<GameSyncPayload | null>(null);
+  const lastSentRef = useRef<GameSyncPayload | null>(null);
+  const inFlightRef = useRef(false);
 
   stateRef.current = state;
 
-  const publish = (payload: ReturnType<typeof buildDuelPayload>) => {
-    const revision = ++mediaRevisionRef.current;
-    syncQueueRef.current = syncQueueRef.current.then(async () => {
-      await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mediaRevision: revision,
-          currentImage: payload.currentImage,
-          nextImage: payload.nextImage,
-          duelInfo: payload.duelInfo,
-        }),
-      });
-    });
+  const flush = async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+
+    try {
+      while (latestPayloadRef.current) {
+        const payload = latestPayloadRef.current;
+        latestPayloadRef.current = null;
+
+        if (lastSentRef.current && payloadsEqual(lastSentRef.current, payload)) {
+          continue;
+        }
+
+        await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source: "game", ...payload }),
+          keepalive: true,
+        });
+        lastSentRef.current = payload;
+      }
+    } catch {
+      // Kolejna zmiana stanu spróbuje ponownie.
+    } finally {
+      inFlightRef.current = false;
+      if (latestPayloadRef.current) {
+        void flush();
+      }
+    }
+  };
+
+  const publish = (payload: GameSyncPayload) => {
+    latestPayloadRef.current = payload;
+    void flush();
   };
 
   useEffect(() => {
-    publish(buildDuelPayload(state));
+    publish(buildGameSyncPayload(state));
   }, [
     state.duel,
     state.duel?.attackerId,
@@ -81,23 +118,9 @@ export default function GameSyncPublisher() {
   ]);
 
   useEffect(() => {
-    if (!state.duel) return;
-
-    const intervalId = window.setInterval(() => {
-      if (!stateRef.current.duel) return;
-      publish(buildDuelPayload(stateRef.current));
-    }, 400);
-
-    return () => window.clearInterval(intervalId);
-  }, [state.duel]);
-
-  useEffect(() => {
-    const onStoreChange = () => {
-      if (!stateRef.current.duel) return;
-      publish(buildDuelPayload(stateRef.current));
-    };
-
-    return useGameStore.subscribe(onStoreChange);
+    return useGameStore.subscribe(() => {
+      publish(buildGameSyncPayload(stateRef.current));
+    });
   }, []);
 
   return null;
