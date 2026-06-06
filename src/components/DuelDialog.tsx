@@ -376,6 +376,7 @@ export default function DuelDialog() {
 
   const onClose = () => {
     dispatch(g => g.cancelDuel());
+    void fetch("/api/admin/game/cancel-duel", { method: "POST" });
   };
 
   onCloseRef.current = onClose;

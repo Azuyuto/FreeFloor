@@ -141,10 +141,21 @@ export function requestStartDuel(attackerId: string, defenderId: string) {
   return state.startDuelToken;
 }
 
+export function clearDuelSyncState() {
+  const state = getState();
+  state.duelInfo = null;
+  state.currentImage = null;
+  state.nextImage = null;
+  state.pendingAction = null;
+  state.pendingStartDuel = null;
+  state.mediaRevision += 1;
+  state.updatedAt = Date.now();
+}
+
 export function requestCancelDuel() {
   const state = getState();
   state.cancelDuelToken = Date.now();
-  state.updatedAt = Date.now();
+  clearDuelSyncState();
   return state.cancelDuelToken;
 }
 

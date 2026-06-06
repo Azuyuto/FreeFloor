@@ -33,6 +33,7 @@ type SyncSnapshot = {
   pendingAction: string | null;
   duelInfo: DuelSyncInfo | null;
   playersUpdatedAt: number;
+  cancelDuelToken: number;
   updatedAt: number;
 };
 
@@ -45,20 +46,32 @@ export default function AdminControls() {
   const sendActionRef = useRef<(action: "correct" | "wrong") => void>(() => {});
   const canControlRef = useRef(false);
   const lastMediaRevisionRef = useRef(0);
+  const lastUpdatedAtRef = useRef(0);
+  const lastCancelDuelTokenRef = useRef(0);
 
   const fetchSync = useCallback(async () => {
     try {
       const res = await fetch("/api/sync");
       const data: SyncSnapshot = await res.json();
       const mediaRevision = data.mediaRevision ?? 0;
+      const updatedAt = data.updatedAt ?? 0;
+      const cancelDuelToken = data.cancelDuelToken ?? 0;
 
       // Po restarcie serwera (np. deploy na Railway) licznik wraca do 0.
       if (mediaRevision < lastMediaRevisionRef.current) {
         lastMediaRevisionRef.current = 0;
       }
 
-      if (mediaRevision >= lastMediaRevisionRef.current) {
-        lastMediaRevisionRef.current = mediaRevision;
+      const duelWasCancelled = cancelDuelToken > lastCancelDuelTokenRef.current;
+      const hasNewerSnapshot =
+        mediaRevision >= lastMediaRevisionRef.current ||
+        updatedAt >= lastUpdatedAtRef.current ||
+        duelWasCancelled;
+
+      if (hasNewerSnapshot) {
+        lastMediaRevisionRef.current = Math.max(lastMediaRevisionRef.current, mediaRevision);
+        lastUpdatedAtRef.current = Math.max(lastUpdatedAtRef.current, updatedAt);
+        lastCancelDuelTokenRef.current = Math.max(lastCancelDuelTokenRef.current, cancelDuelToken);
         setSync(data);
       }
     } catch {
@@ -115,7 +128,11 @@ export default function AdminControls() {
     try {
       const res = await fetch("/api/admin/game/cancel-duel", { method: "POST" });
       if (!res.ok) return;
-      await fetchSync();
+      const data: SyncSnapshot = await res.json();
+      setSync(data);
+      lastMediaRevisionRef.current = data.mediaRevision ?? lastMediaRevisionRef.current;
+      lastUpdatedAtRef.current = data.updatedAt ?? lastUpdatedAtRef.current;
+      lastCancelDuelTokenRef.current = data.cancelDuelToken ?? lastCancelDuelTokenRef.current;
     } finally {
       setCancelPending(false);
     }

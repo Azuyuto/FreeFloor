@@ -4,43 +4,34 @@ import { useEffect, useRef } from "react";
 import { useGameContext } from "@/components/GameProvider";
 import { useGameStore } from "@/stores/useGameStore";
 
-let lastCancelDuelToken = 0;
-
 export default function CancelDuelListener() {
   const { state, dispatch } = useGameContext();
   const duelActiveRef = useRef(false);
+  const lastCancelDuelTokenRef = useRef(0);
 
   duelActiveRef.current = !!state.duel;
 
   useEffect(() => {
-    const init = async () => {
+    const syncCancelToken = async () => {
       try {
         const res = await fetch("/api/sync");
         const data = await res.json();
-        lastCancelDuelToken = data.cancelDuelToken ?? 0;
-      } catch {
-        lastCancelDuelToken = 0;
-      }
-    };
-    void init();
+        const token = data.cancelDuelToken ?? 0;
 
-    const poll = async () => {
-      if (!duelActiveRef.current) return;
-
-      try {
-        const res = await fetch("/api/sync");
-        const data = await res.json();
-        if (data.cancelDuelToken > lastCancelDuelToken) {
-          lastCancelDuelToken = data.cancelDuelToken;
-          useGameStore.getState().setCurrentImage(null);
-          dispatch(g => g.cancelDuel());
+        if (token > lastCancelDuelTokenRef.current) {
+          lastCancelDuelTokenRef.current = token;
+          if (duelActiveRef.current) {
+            useGameStore.getState().setCurrentImage(null);
+            dispatch(g => g.cancelDuel());
+          }
         }
       } catch {
-        // ignore
+        // ignore polling errors
       }
     };
 
-    const intervalId = window.setInterval(poll, 400);
+    void syncCancelToken();
+    const intervalId = window.setInterval(syncCancelToken, 200);
     return () => window.clearInterval(intervalId);
   }, [dispatch]);
 
