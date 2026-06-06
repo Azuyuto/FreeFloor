@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { shuffleCategoryMedia } from "@/lib/fileUtils";
+import { touchCategoriesUpdated } from "@/lib/serverSync";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -8,6 +9,7 @@ export async function POST(_request: Request, context: RouteContext) {
     const { id: rawId } = await context.params;
     const id = decodeURIComponent(rawId);
     const images = await shuffleCategoryMedia(id);
+    touchCategoriesUpdated();
     return NextResponse.json({ id, images });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Błąd mieszania plików kategorii";

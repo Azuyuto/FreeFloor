@@ -43,8 +43,16 @@ export class GameEngine {
         category: defender.category,
         currentTurn: attackerId,
         startedAt: Date.now() + 5_000,
-        imageIndex: 0
+        imageIndex: 0,
+        imageQueue: [],
       };
+    });
+  }
+
+  setDuelImageQueue(queue: string[]) {
+    this.setState(draft => {
+      if (!draft.duel) return;
+      draft.duel.imageQueue = queue;
     });
   }
 

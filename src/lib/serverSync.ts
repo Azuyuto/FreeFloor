@@ -7,6 +7,7 @@ export type DuelSyncInfo = {
   status: string;
   currentTurnNickname: string;
   imageIndex: number;
+  imageQueue: string[];
 };
 
 type ServerSyncState = {
@@ -24,6 +25,7 @@ type ServerSyncState = {
   startDuelToken: number;
   pendingStartDuel: { attackerId: string; defenderId: string } | null;
   cancelDuelToken: number;
+  categoriesRevision: number;
   updatedAt: number;
 };
 
@@ -48,6 +50,7 @@ function getState(): ServerSyncState {
       startDuelToken: 0,
       pendingStartDuel: null,
       cancelDuelToken: 0,
+      categoriesRevision: 0,
       updatedAt: Date.now(),
     };
   }
@@ -71,6 +74,7 @@ export function getSyncSnapshot() {
     startDuelToken: state.startDuelToken,
     pendingStartDuel: state.pendingStartDuel,
     cancelDuelToken: state.cancelDuelToken,
+    categoriesRevision: state.categoriesRevision,
     updatedAt: state.updatedAt,
   };
 }
@@ -174,6 +178,12 @@ export function setGridSize(size: number) {
 export function touchConfigUpdated() {
   const state = getState();
   state.configUpdatedAt = Date.now();
+  state.updatedAt = Date.now();
+}
+
+export function touchCategoriesUpdated() {
+  const state = getState();
+  state.categoriesRevision = Date.now();
   state.updatedAt = Date.now();
 }
 

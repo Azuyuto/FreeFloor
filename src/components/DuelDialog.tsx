@@ -16,6 +16,7 @@ import {
   registerAdminActionHandlers,
 } from "@/lib/adminActionBridge";
 import { formatDisplayLabel, getImageNameFromPath } from "@/lib/imageUtils";
+import { shuffleArray } from "@/lib/shuffleArray";
 
 export default function DuelDialog() {
   const { state, dispatch } = useGameContext();
@@ -34,6 +35,7 @@ export default function DuelDialog() {
   const mediaRevisionRef = useRef(0);
   const syncQueueRef = useRef(Promise.resolve());
   const hadDuelRef = useRef(false);
+  const categoriesRevisionRef = useRef(0);
   const [buttonsDisabled, setButtonsDisabled] = useState(false);
   const [showResult, setShowResult] = useState<{ type: "correct" | "wrong"; message: string } | null>(null);
   const [showWinner, setShowWinner] = useState(false);
@@ -115,14 +117,14 @@ export default function DuelDialog() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [buttonsDisabled, state.duel]);
 
+  const getDuelImageQueue = () => state.duel?.imageQueue ?? [];
+
   const getNextImagePath = () => {
-    if (!state.duel || categories.length === 0) return null;
-    const defender = state.players[state.duel.defenderId];
-    const category = categories.find(c => c.id === defender.category);
-    if (!category) return null;
+    if (!state.duel) return null;
+    const queue = getDuelImageQueue();
     const nextIdx = state.duel.imageIndex + 1;
-    if (nextIdx >= category.images.length) return null;
-    return category.images[nextIdx];
+    if (nextIdx >= queue.length) return null;
+    return queue[nextIdx];
   };
 
   const syncToServer = (
@@ -151,6 +153,7 @@ export default function DuelDialog() {
                 status: state.status,
                 currentTurnNickname: currentTurn.nickname,
                 imageIndex: state.duel.imageIndex,
+                imageQueue: state.duel.imageQueue,
               }
             : null,
         }),
@@ -178,6 +181,7 @@ export default function DuelDialog() {
     state.duel?.defenderId,
     state.duel?.currentTurn,
     state.duel?.imageIndex,
+    state.duel?.imageQueue,
     state.status,
     categories,
   ]);
@@ -270,14 +274,37 @@ export default function DuelDialog() {
     }
   }, [state.status, state.lastWinner]);
 
-  // Load categories once
+  const loadCategories = async () => {
+    const res = await fetch("/api/categories");
+    if (!res.ok) return;
+    const data: Category[] = await res.json();
+    setCategories(data);
+  };
+
   useEffect(() => {
-    const fetchCategories = async () => {
-      const res = await fetch("/api/categories");
-      const data: Category[] = await res.json();
-      setCategories(data);
+    void loadCategories();
+
+    const watchCategoryChanges = async () => {
+      try {
+        const res = await fetch("/api/sync");
+        if (!res.ok) return;
+        const data = await res.json();
+        const revision = data.categoriesRevision ?? 0;
+        if (categoriesRevisionRef.current === 0) {
+          categoriesRevisionRef.current = revision;
+          return;
+        }
+        if (revision > categoriesRevisionRef.current) {
+          categoriesRevisionRef.current = revision;
+          await loadCategories();
+        }
+      } catch {
+        // ignore polling errors
+      }
     };
-    fetchCategories();
+
+    const intervalId = window.setInterval(watchCategoryChanges, 1000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   const endLoading = () =>
@@ -287,29 +314,52 @@ export default function DuelDialog() {
     });
   }
 
-  // When duel starts or imageIndex changes, pick next image
+  // Przy starcie pojedynku losuj kolejność zdjęć z kategorii broniącego
   useEffect(() => {
     if (!state.duel || categories.length === 0) return;
+    if (state.duel.imageQueue.length > 0) return;
 
     const defender = state.players[state.duel.defenderId];
-    // Find category object
     const category = categories.find(c => c.id === defender.category);
     if (!category || category.images.length === 0) {
       setCurrentImage(null);
       return;
     }
 
-    // Track index per duel in local state
+    const shuffled = shuffleArray(category.images);
+    dispatch(g => g.setDuelImageQueue(shuffled));
+  }, [
+    state.duel?.attackerId,
+    state.duel?.defenderId,
+    state.duel?.imageQueue.length,
+    categories,
+    dispatch,
+    setCurrentImage,
+    state.players,
+  ]);
+
+  // Wybierz bieżące zdjęcie z kolejki pojedynku
+  useEffect(() => {
+    if (!state.duel) return;
+
+    const queue = state.duel.imageQueue;
+    if (queue.length === 0) return;
+
     const idx = state.duel.imageIndex;
-    // Bound the index
-    if (idx >= category.images.length) {
+    if (idx >= queue.length) {
       dispatch(g => {
         g.endDuel();
       });
       return;
     }
-    setCurrentImage(category.images[idx]);
-  }, [state.duel?.defenderId, state.duel?.imageIndex, categories, dispatch, setCurrentImage, state.players]);
+    setCurrentImage(queue[idx]);
+  }, [
+    state.duel?.imageIndex,
+    state.duel?.imageQueue,
+    dispatch,
+    setCurrentImage,
+    state.duel,
+  ]);
 
   const onCorrect = (opts?: AnswerOpts) => {
     if (!state.duel) return;

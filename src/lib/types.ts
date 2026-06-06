@@ -40,4 +40,5 @@ export type DuelState = {
   currentTurn: string; // id gracza, którego czas leci
   startedAt: number;
   imageIndex: number;
+  imageQueue: string[];
 };

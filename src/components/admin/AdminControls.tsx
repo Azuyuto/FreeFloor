@@ -15,14 +15,18 @@ function resolveDuelMedia(
 ): { currentImage: string | null; nextImage: string | null } {
   if (!duel) return { currentImage: null, nextImage: null };
 
-  const category = categories.find(c => c.id === duel.category);
-  if (!category || category.images.length === 0) {
+  const idx = duel.imageIndex ?? 0;
+  const queue =
+    duel.imageQueue?.length > 0
+      ? duel.imageQueue
+      : (categories.find(c => c.id === duel.category)?.images ?? []);
+
+  if (queue.length === 0) {
     return { currentImage: null, nextImage: null };
   }
 
-  const idx = duel.imageIndex ?? 0;
-  const currentImage = idx < category.images.length ? category.images[idx] : null;
-  const nextImage = idx + 1 < category.images.length ? category.images[idx + 1] : null;
+  const currentImage = idx < queue.length ? queue[idx] : null;
+  const nextImage = idx + 1 < queue.length ? queue[idx + 1] : null;
   return { currentImage, nextImage };
 }
 
@@ -34,6 +38,7 @@ type SyncSnapshot = {
   duelInfo: DuelSyncInfo | null;
   playersUpdatedAt: number;
   cancelDuelToken: number;
+  categoriesRevision: number;
   updatedAt: number;
 };
 
@@ -48,6 +53,7 @@ export default function AdminControls() {
   const lastMediaRevisionRef = useRef(0);
   const lastUpdatedAtRef = useRef(0);
   const lastCancelDuelTokenRef = useRef(0);
+  const lastCategoriesRevisionRef = useRef(0);
 
   const fetchSync = useCallback(async () => {
     try {
@@ -79,22 +85,28 @@ export default function AdminControls() {
     }
   }, []);
 
-  useEffect(() => {
-    const loadCategories = async () => {
-      try {
-        const res = await fetch("/api/categories");
-        if (!res.ok) return;
-        const data: Category[] = await res.json();
-        setCategories(data);
-      } catch {
-        setCategories([]);
-      }
-    };
-
-    void loadCategories();
-    const intervalId = window.setInterval(loadCategories, 10_000);
-    return () => window.clearInterval(intervalId);
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/categories");
+      if (!res.ok) return;
+      const data: Category[] = await res.json();
+      setCategories(data);
+    } catch {
+      setCategories([]);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadCategories();
+  }, [loadCategories]);
+
+  useEffect(() => {
+    const revision = sync?.categoriesRevision ?? 0;
+    if (revision > lastCategoriesRevisionRef.current) {
+      lastCategoriesRevisionRef.current = revision;
+      void loadCategories();
+    }
+  }, [sync?.categoriesRevision, loadCategories]);
 
   const sendAction = useCallback(async (action: "correct" | "wrong") => {
     if (!canControlRef.current) return;
