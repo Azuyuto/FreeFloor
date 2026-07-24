@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePlayersStore } from "@/stores/usePlayersStore";
 import { useGameConfigStore } from "@/stores/useGameConfigStore";
 import { useGameContext } from "@/components/GameProvider";
@@ -11,7 +11,10 @@ let lastConfigUpdatedAt = 0;
 export default function PlayersSyncListener() {
   const loadFromServer = usePlayersStore(s => s.loadFromServer);
   const loadConfig = useGameConfigStore(s => s.loadFromServer);
-  const { dispatch } = useGameContext();
+  const { state, dispatch } = useGameContext();
+  const statusRef = useRef(state.status);
+
+  statusRef.current = state.status;
 
   useEffect(() => {
     const init = async () => {
@@ -36,13 +39,20 @@ export default function PlayersSyncListener() {
         if (data.configUpdatedAt > lastConfigUpdatedAt) {
           lastConfigUpdatedAt = data.configUpdatedAt;
           await loadConfig();
-          needsReload = true;
+          // Rozmiar planszy — tylko poza aktywną rundą
+          if (statusRef.current === "waiting") {
+            needsReload = true;
+          }
         }
 
         if (data.playersUpdatedAt > lastPlayersUpdatedAt) {
           lastPlayersUpdatedAt = data.playersUpdatedAt;
           await loadFromServer();
-          needsReload = true;
+          // Po endDuel zapis graczy nie może wywołać reloadFromStore
+          // (czyścił finished i powodował dziwne „zapętlenie” kolejnej rundy).
+          if (statusRef.current === "waiting") {
+            needsReload = true;
+          }
         }
 
         if (needsReload) {

@@ -13,6 +13,7 @@ export type DuelSyncInfo = {
 type ServerSyncState = {
   currentImage: string | null;
   nextImage: string | null;
+  afterNextImage: string | null;
   syncGeneration: number;
   pendingAction: AdminAction | null;
   duelInfo: DuelSyncInfo | null;
@@ -38,6 +39,7 @@ function getState(): ServerSyncState {
     globalForSync.__freeFloorSync = {
       currentImage: null,
       nextImage: null,
+      afterNextImage: null,
       syncGeneration: 0,
       pendingAction: null,
       duelInfo: null,
@@ -53,6 +55,8 @@ function getState(): ServerSyncState {
       categoriesRevision: 0,
       updatedAt: Date.now(),
     };
+  } else if (!("afterNextImage" in globalForSync.__freeFloorSync)) {
+    (globalForSync.__freeFloorSync as ServerSyncState).afterNextImage = null;
   }
   return globalForSync.__freeFloorSync;
 }
@@ -67,6 +71,7 @@ export function getSyncSnapshot() {
   return {
     currentImage: state.currentImage,
     nextImage: state.nextImage,
+    afterNextImage: state.afterNextImage,
     syncGeneration: state.syncGeneration,
     pendingAction: state.pendingAction,
     duelInfo: state.duelInfo,
@@ -88,11 +93,13 @@ export function getSyncSnapshot() {
 export function applyGameSync(payload: {
   currentImage: string | null;
   nextImage: string | null;
+  afterNextImage: string | null;
   duelInfo: DuelSyncInfo | null;
 }) {
   const state = getState();
   state.currentImage = payload.currentImage;
   state.nextImage = payload.nextImage;
+  state.afterNextImage = payload.afterNextImage;
   state.duelInfo = payload.duelInfo;
   bumpSync(state);
 }
@@ -106,6 +113,12 @@ export function setCurrentImage(image: string | null) {
 export function setNextImage(image: string | null) {
   const state = getState();
   state.nextImage = image;
+  bumpSync(state);
+}
+
+export function setAfterNextImage(image: string | null) {
+  const state = getState();
+  state.afterNextImage = image;
   bumpSync(state);
 }
 
@@ -143,11 +156,23 @@ export function requestStartDuel(attackerId: string, defenderId: string) {
   return state.startDuelToken;
 }
 
+/** Konsumuj żądanie startu — bez tego pending zostaje i może odpalić rundę ponownie. */
+export function consumePendingStartDuel(): { attackerId: string; defenderId: string } | null {
+  const state = getState();
+  const pending = state.pendingStartDuel;
+  state.pendingStartDuel = null;
+  if (pending) {
+    bumpSync(state);
+  }
+  return pending;
+}
+
 export function clearDuelSyncState() {
   const state = getState();
   state.duelInfo = null;
   state.currentImage = null;
   state.nextImage = null;
+  state.afterNextImage = null;
   state.pendingAction = null;
   state.pendingStartDuel = null;
   bumpSync(state);

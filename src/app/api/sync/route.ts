@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import {
   applyGameSync,
   consumePendingAction,
+  consumePendingStartDuel,
   getSyncSnapshot,
+  setAfterNextImage,
   setCurrentImage,
   setDuelInfo,
   setNextImage,
@@ -27,6 +29,7 @@ export async function POST(request: Request) {
     applyGameSync({
       currentImage: body.currentImage ?? null,
       nextImage: body.nextImage ?? null,
+      afterNextImage: body.afterNextImage ?? null,
       duelInfo: (body.duelInfo as DuelSyncInfo | null) ?? null,
     });
   } else {
@@ -36,6 +39,10 @@ export async function POST(request: Request) {
 
     if ("nextImage" in body) {
       setNextImage(body.nextImage ?? null);
+    }
+
+    if ("afterNextImage" in body) {
+      setAfterNextImage(body.afterNextImage ?? null);
     }
 
     if ("duelInfo" in body) {
@@ -57,6 +64,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ ...getSyncSnapshot(), consumedAction: action });
     }
     return NextResponse.json({ ...getSyncSnapshot(), consumedAction: null });
+  }
+
+  if (body.consumeStartDuel === true) {
+    const pending = consumePendingStartDuel();
+    return NextResponse.json({
+      ...getSyncSnapshot(),
+      consumedStartDuel: pending,
+    });
   }
 
   return NextResponse.json(getSyncSnapshot());

@@ -12,6 +12,7 @@ import AdminCombatants from "./AdminCombatants";
 type SyncSnapshot = {
   currentImage: string | null;
   nextImage: string | null;
+  afterNextImage: string | null;
   syncGeneration: number;
   pendingAction: string | null;
   duelInfo: DuelSyncInfo | null;
@@ -107,6 +108,7 @@ export default function AdminControls() {
   const duel = sync?.duelInfo ?? null;
   const currentImage = duel ? (sync?.currentImage ?? null) : null;
   const nextImage = duel ? (sync?.nextImage ?? null) : null;
+  const afterNextImage = duel ? (sync?.afterNextImage ?? null) : null;
   const currentImageName = getImageNameFromPath(currentImage);
   const canControl = !!duel;
 
@@ -141,9 +143,10 @@ export default function AdminControls() {
         <p className="text-xs text-muted-foreground">Brak aktywnego pojedynku</p>
       )}
 
-      <div className="flex justify-center gap-4">
+      <div className="flex justify-center gap-3">
         <MediaPreview src={currentImage} label="Teraz" size="admin" />
         <MediaPreview src={nextImage} label="Następne" size="admin" />
+        <MediaPreview src={afterNextImage} label="Za 2" size="admin" />
       </div>
 
       <p className="rounded border bg-background px-3 py-2.5 text-center text-base font-semibold leading-tight">
@@ -199,7 +202,7 @@ export default function AdminControls() {
             <kbd className="rounded border px-1">A–Z</kbd> = poprawna (2 s, zmiana tury).
           </li>
           <li>
-            <kbd className="rounded border px-1">Spacja</kbd> = pas (3 s, bez zmiany tury).
+            <kbd className="rounded border px-1">Spacja</kbd> = pas (czas leci dalej, bez zmiany tury).
           </li>
           <li>Losowanie atakującego wyświetla się na ekranie gry.</li>
           <li>

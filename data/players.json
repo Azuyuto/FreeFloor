@@ -1,48 +1,50 @@
 {
-  "f6265175-5759-4408-b9fc-00e3d7240964": {
-    "id": "f6265175-5759-4408-b9fc-00e3d7240964",
-    "nickname": "Gracz 1",
-    "avatarUrl": "/api/media/avatars/muzyka_dinozaur_dj.png",
-    "category": "Popularne seriale",
-    "color": "#FADADD",
+  "64e66ac7-f712-4863-ad97-6a67e972052d": {
+    "id": "64e66ac7-f712-4863-ad97-6a67e972052d",
+    "nickname": "FHFGHFGH",
+    "avatarUrl": "/api/media/avatars/alkohol_szczesliwe_piwo.png",
+    "category": "Stwory mityczne",
+    "color": "#1ABC9C",
     "territory": [
       "0-0",
-      "1-0",
-      "2-0",
-      "2-1",
-      "3-0",
-      "3-1",
-      "3-2",
-      "3-3",
-      "4-0",
-      "4-1",
-      "4-2",
-      "4-3"
-    ],
-    "timeLeft": 45000,
-    "lockedUntil": 0
-  },
-  "dab7db09-419e-46a7-8f5a-f6823999781b": {
-    "id": "dab7db09-419e-46a7-8f5a-f6823999781b",
-    "nickname": "Gracz 2",
-    "avatarUrl": "/api/media/avatars/impreza_kula_dyskotekowa.png",
-    "category": "Stwory mityczne",
-    "color": "#D5F5E3",
-    "territory": [
       "0-1",
       "0-2",
       "0-3",
       "0-4",
+      "1-0",
       "1-1",
       "1-2",
       "1-3",
       "1-4",
+      "2-0",
+      "2-1",
       "2-2",
       "2-3",
       "2-4",
+      "3-0",
+      "3-1",
+      "3-2",
+      "3-3",
       "3-4",
+      "4-0",
+      "4-1",
+      "4-2",
+      "4-3",
       "4-4"
     ],
+    "timeLeft": 30000,
+    "lockedUntil": 0
+  },
+  "94014126-abdc-4d71-9dbd-ca6b9c8ba1e7": {
+    "nickname": "fdsgfdfg",
+    "avatarUrl": "/api/media/avatars/alkohol_kac_kawa_never_again.png",
+    "category": "_Soundtracki",
+    "color": "#D6EAF8",
+    "territory": [
+      "2-3",
+      "2-0"
+    ],
+    "id": "94014126-abdc-4d71-9dbd-ca6b9c8ba1e7",
     "timeLeft": 45000,
     "lockedUntil": 0
   }

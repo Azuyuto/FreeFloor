@@ -21,6 +21,7 @@ const MIME: Record<string, string> = {
   ".m4a": "audio/mp4",
   ".aac": "audio/aac",
   ".flac": "audio/flac",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 export async function GET(_request: Request, context: RouteContext) {

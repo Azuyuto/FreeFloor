@@ -5,48 +5,48 @@ import { useEffect, useState, useRef } from "react";
 interface Props {
   onFinish: () => void;
   duration?: number;
+  subtitle?: string;
 }
 
-export default function CountdownOverlay({ onFinish, duration = 5 }: Props) {
+export default function CountdownOverlay({ onFinish, duration = 5, subtitle }: Props) {
   const [count, setCount] = useState(duration);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onFinishRef = useRef(onFinish);
+  const finishedRef = useRef(false);
 
-  // Aktualizuj ref przy zmianie onFinish
   useEffect(() => {
     onFinishRef.current = onFinish;
   }, [onFinish]);
 
   useEffect(() => {
-    // Rozpocznij interval tylko raz
     intervalRef.current = setInterval(() => {
-      setCount(prevCount => {
-        if (prevCount <= 1) {
-          // Zakończ odliczanie
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
-          }
-          onFinishRef.current();
-          return 0;
-        }
-        return prevCount - 1;
-      });
+      setCount(prevCount => (prevCount <= 1 ? 0 : prevCount - 1));
     }, 1000);
 
-    // Cleanup
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
-  }, []); // Pusta dependency array - uruchom tylko raz
+  }, []);
+
+  // onFinish poza updaterem setState — inaczej React ostrzega o update GameProvider podczas renderu.
+  useEffect(() => {
+    if (count > 0 || finishedRef.current) return;
+    finishedRef.current = true;
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    onFinishRef.current();
+  }, [count]);
 
   return (
     <div
       aria-label="Countdown"
       className="
-        absolute inset-0 z-40 flex items-center justify-center
+        absolute inset-0 z-40 flex flex-col items-center justify-center gap-4
         bg-black/80 backdrop-blur-xl select-none
       "
     >
@@ -59,6 +59,9 @@ export default function CountdownOverlay({ onFinish, duration = 5 }: Props) {
       >
         {count}
       </span>
+      {subtitle && (
+        <span className="text-lg text-white/70">{subtitle}</span>
+      )}
     </div>
   );
 }

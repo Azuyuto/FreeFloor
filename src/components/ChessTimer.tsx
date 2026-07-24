@@ -2,30 +2,36 @@
 "use client";
 
 import { useGameContext } from "./GameProvider";
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 
 interface ChessTimerProps {
   playerId: string;
+  /** Tylko jeden timer w pojedynku powinien tykać — inaczej podwójne endDuel. */
+  ticks?: boolean;
 }
 
-export function ChessTimer({ playerId }: ChessTimerProps) {
+export function ChessTimer({ playerId, ticks = false }: ChessTimerProps) {
   const { state, dispatch } = useGameContext();
   const duel = state.duel;
-  const [, rerender] = useState(0);
+  const endingRef = useRef(false);
 
   useEffect(() => {
-    if (!duel) return;
+    endingRef.current = false;
+  }, [duel?.attackerId, duel?.defenderId]);
 
-    const id = setInterval(() => {
+  useEffect(() => {
+    if (!ticks || !duel || state.status !== "duel") return;
+
+    const id = window.setInterval(() => {
       const loser = dispatch(g => g.tick());
-      if (loser) {
+      if (loser && !endingRef.current) {
+        endingRef.current = true;
         dispatch(g => g.endDuel());
       }
-      rerender(x => x + 1);
     }, 100);
 
-    return () => clearInterval(id);
-  }, [duel, dispatch]);
+    return () => window.clearInterval(id);
+  }, [ticks, duel?.attackerId, duel?.defenderId, state.status, dispatch]);
 
   if (!duel) return null;
 

@@ -12,12 +12,17 @@ const MEDIA_ORDER_FILE = ".media-order.json";
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|gif|avif|svg|bmp|ico)$/i;
 const AUDIO_EXTENSIONS = /\.(mp3|wav|ogg|m4a|aac|flac)$/i;
+const TEXT_EXTENSIONS = /\.txt$/i;
 
 export const isMusicCategory = (name: string) => name.trim().startsWith("_");
+export const isTextCategory = (name: string) => name.trim().startsWith("-");
 
 const isMediaFile = (categoryId: string, filename: string) => {
   if (isMusicCategory(categoryId)) {
     return AUDIO_EXTENSIONS.test(filename);
+  }
+  if (isTextCategory(categoryId)) {
+    return TEXT_EXTENSIONS.test(filename);
   }
   return IMAGE_EXTENSIONS.test(filename);
 };

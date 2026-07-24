@@ -23,6 +23,8 @@ export function preloadGameSounds() {
 
 export function unlockGameSounds() {
   if (unlocked || typeof window === "undefined") return;
+  // Od razu — żeby kolejne keydown nie ściszały SFX do 0.001
+  unlocked = true;
 
   for (const file of SOUND_FILES) {
     const audio = getAudio(file);
@@ -34,7 +36,6 @@ export function unlockGameSounds() {
         audio.pause();
         audio.currentTime = 0;
         audio.volume = prevVolume;
-        unlocked = true;
       })
       .catch(() => {
         audio.volume = prevVolume;
@@ -44,11 +45,13 @@ export function unlockGameSounds() {
 
 export function playGameSound(file: SoundFile) {
   if (typeof window === "undefined") return;
-  const audio = getAudio(file);
-  audio.currentTime = 0;
+  // Osobna instancja — bez kolizji z unlockiem i muzyką rundy
+  const audio = new Audio(`/sounds/${file}`);
+  audio.volume = 1;
   void audio.play().catch(() => {
     unlockGameSounds();
-    audio.currentTime = 0;
-    void audio.play().catch(() => undefined);
+    const retry = new Audio(`/sounds/${file}`);
+    retry.volume = 1;
+    void retry.play().catch(() => undefined);
   });
 }

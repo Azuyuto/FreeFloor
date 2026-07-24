@@ -15,15 +15,27 @@ import {
   clearAdminActionHandlers,
   registerAdminActionHandlers,
 } from "@/lib/adminActionBridge";
-import { formatDisplayLabel, getImageNameFromPath } from "@/lib/imageUtils";
+import {
+  formatDisplayLabel,
+  getImageNameFromPath,
+  isMusicCategory,
+  isTextCategory,
+} from "@/lib/imageUtils";
 import { shuffleArray } from "@/lib/shuffleArray";
 import { playGameSound, preloadGameSounds, unlockGameSounds } from "@/lib/gameSounds";
+import {
+  clearMediaCaches,
+  getCachedText,
+  isTextPath,
+  preloadMediaUrls,
+} from "@/lib/mediaPreload";
+import { useGameConfigStore } from "@/stores/useGameConfigStore";
 
 export default function DuelDialog() {
   const { state, dispatch } = useGameContext();
   const [categories, setCategories] = useState<Category[]>([]);
   const currentImage = useGameStore(s => s.currentImage);
-  const setCurrentImage = useGameStore(s => s.setCurrentImage);;
+  const setCurrentImage = useGameStore(s => s.setCurrentImage);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioSrcRef = useRef<string | null>(null);
   const answerTimeoutRef = useRef<number | null>(null);
@@ -35,14 +47,20 @@ export default function DuelDialog() {
   const duelSessionRef = useRef<string | null>(null);
   const hadDuelRef = useRef(false);
   const categoriesRevisionRef = useRef(0);
+  const mediaReadyRef = useRef(false);
+  const pendingEndLoadingRef = useRef(false);
+  const endedByQueueRef = useRef(false);
   const [buttonsDisabled, setButtonsDisabled] = useState(false);
   const [showResult, setShowResult] = useState<{ type: "correct" | "wrong"; message: string } | null>(null);
   const [showWinner, setShowWinner] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const [mediaReady, setMediaReady] = useState(false);
   const duelDefenderId = state.duel?.defenderId ?? null;
   const duelDefenderCategory = duelDefenderId ? state.players[duelDefenderId]?.category ?? "" : "";
-
-  const isMusicCategory = (name: string) => name.trim().startsWith("_");
+  const duelImageIndex = state.duel?.imageIndex ?? 0;
+  const duelImageQueue = state.duel?.imageQueue;
+  const duelQueueLength = duelImageQueue?.length ?? 0;
 
   const clearPendingAnswerTimeout = () => {
     if (answerTimeoutRef.current !== null) {
@@ -55,6 +73,7 @@ export default function DuelDialog() {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      audioRef.current.src = "";
     }
     audioRef.current = null;
     audioSrcRef.current = null;
@@ -66,6 +85,23 @@ export default function DuelDialog() {
     setButtonsDisabled(false);
     setShowResult(null);
     setShowWinner(false);
+    setTextContent(null);
+    setMediaReady(false);
+    mediaReadyRef.current = false;
+    pendingEndLoadingRef.current = false;
+    endedByQueueRef.current = false;
+    clearMediaCaches();
+  };
+
+  const tryEndLoading = () => {
+    if (mediaReadyRef.current) {
+      pendingEndLoadingRef.current = false;
+      queueMicrotask(() => {
+        dispatch(g => g.endLoading());
+      });
+      return;
+    }
+    pendingEndLoadingRef.current = true;
   };
 
   useEffect(() => {
@@ -127,16 +163,17 @@ export default function DuelDialog() {
     return () => clearAdminActionHandlers();
   }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     if (!currentImage) return;
-      const filename = currentImage.split("/").pop()!;
-      fetch("/api/logImage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageName: filename }),
-      });
-    }, [currentImage]);
+    const filename = currentImage.split("/").pop()!;
+    fetch("/api/logImage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageName: filename }),
+    });
+  }, [currentImage]);
 
+  // Muzyka kategorii _ — jak w oryginale, ale bez niszczenia elementu przy zmianie utworu
   useEffect(() => {
     if (!duelDefenderId || !currentImage || state.status !== "duel") {
       resetAudio();
@@ -148,7 +185,7 @@ export default function DuelDialog() {
       return;
     }
 
-    // Nie restartuj co tick: twórz nowy dźwięk tylko gdy zmienił się plik.
+    // Ten sam utwór — tylko wznów, jeśli pauza
     if (audioRef.current && audioSrcRef.current === currentImage) {
       if (audioRef.current.paused) {
         void audioRef.current.play().catch(() => setIsAudioPlaying(false));
@@ -156,30 +193,53 @@ export default function DuelDialog() {
       return;
     }
 
+    const attachHandlers = (audio: HTMLAudioElement) => {
+      audio.loop = true;
+      audio.onplay = () => setIsAudioPlaying(true);
+      audio.onpause = () => setIsAudioPlaying(false);
+      audio.onended = () => setIsAudioPlaying(false);
+    };
+
     if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+      // Ten sam element = przeglądarka pozwala na kolejne play()
+      const audio = audioRef.current;
+      attachHandlers(audio);
+      audioSrcRef.current = currentImage;
+      audio.src = currentImage;
+      void audio.play().catch(() => setIsAudioPlaying(false));
+      return;
     }
 
     const audio = new Audio(currentImage);
-    audio.loop = true;
+    attachHandlers(audio);
     audioRef.current = audio;
     audioSrcRef.current = currentImage;
-    audio.onplay = () => setIsAudioPlaying(true);
-    audio.onpause = () => setIsAudioPlaying(false);
-    audio.onended = () => setIsAudioPlaying(false);
     void audio.play().catch(() => setIsAudioPlaying(false));
-
-    return () => {
-      // cleanup tylko przy faktycznej zmianie źródła/duelu
-      if (audioRef.current !== audio) return;
-      audio.pause();
-      audio.currentTime = 0;
-      audioRef.current = null;
-      audioSrcRef.current = null;
-      setIsAudioPlaying(false);
-    };
   }, [currentImage, state.status, duelDefenderId, duelDefenderCategory]);
+
+  useEffect(() => {
+    if (!currentImage || !isTextPath(currentImage)) {
+      setTextContent(null);
+      return;
+    }
+    const cached = getCachedText(currentImage);
+    if (cached !== null) {
+      setTextContent(cached);
+      return;
+    }
+    let cancelled = false;
+    void fetch(currentImage)
+      .then(res => res.text())
+      .then(text => {
+        if (!cancelled) setTextContent(text.trim());
+      })
+      .catch(() => {
+        if (!cancelled) setTextContent(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentImage]);
 
   const duelSessionId = state.duel
     ? `${state.duel.attackerId}-${state.duel.defenderId}`
@@ -200,18 +260,18 @@ export default function DuelDialog() {
     if (duelSessionRef.current !== duelSessionId) {
       duelSessionRef.current = duelSessionId;
       answeringRef.current = false;
+      endedByQueueRef.current = false;
       setButtonsDisabled(false);
       setShowResult(null);
+      setMediaReady(false);
+      mediaReadyRef.current = false;
+      pendingEndLoadingRef.current = false;
     }
   }, [duelSessionId, setCurrentImage]);
 
-  // gdy status zmieni się na "ended", pokaż overlay zwycięzcy
   useEffect(() => {
     if (state.status === "finished" && state.lastWinner) {
       setShowWinner(true);
-      // po 5 sekundach ukryj
-      const t = setTimeout(() => setShowWinner(false), 5_000);
-      return () => clearTimeout(t);
     }
   }, [state.status, state.lastWinner]);
 
@@ -248,22 +308,23 @@ export default function DuelDialog() {
     return () => window.clearInterval(intervalId);
   }, []);
 
-  const endLoading = () =>
-  {
-    dispatch(g => {
-      g.endLoading();
-    });
-  }
-
-  // Przy starcie pojedynku losuj kolejność zdjęć z kategorii broniącego
+  // Przy starcie pojedynku losuj kolejność mediów z kategorii broniącego
   useEffect(() => {
     if (!state.duel || categories.length === 0) return;
-    if (state.duel.imageQueue.length > 0) return;
+    if (duelQueueLength > 0) return;
 
     const defender = state.players[state.duel.defenderId];
+    if (!defender) return;
     const category = categories.find(c => c.id === defender.category);
     if (!category || category.images.length === 0) {
       setCurrentImage(null);
+      // Pusta kategoria — odblokuj start rundy
+      mediaReadyRef.current = true;
+      setMediaReady(true);
+      if (pendingEndLoadingRef.current) {
+        pendingEndLoadingRef.current = false;
+        queueMicrotask(() => dispatch(g => g.endLoading()));
+      }
       return;
     }
 
@@ -272,34 +333,76 @@ export default function DuelDialog() {
   }, [
     state.duel?.attackerId,
     state.duel?.defenderId,
-    state.duel?.imageQueue.length,
+    duelQueueLength,
     categories,
     dispatch,
     setCurrentImage,
     state.players,
   ]);
 
-  // Wybierz bieżące zdjęcie z kolejki pojedynku
+  // Preload obrazów/tekstu podczas ładowania — muzyka bez preloadu
   useEffect(() => {
-    if (!state.duel) return;
+    if (!state.duel || state.status !== "loading") return;
+    if (duelQueueLength === 0) return;
 
-    const queue = state.duel.imageQueue;
-    if (queue.length === 0) return;
-
-    const idx = state.duel.imageIndex;
-    if (idx >= queue.length) {
-      dispatch(g => {
-        g.endDuel();
-      });
+    const defender = state.players[state.duel.defenderId];
+    if (defender && isMusicCategory(defender.category)) {
+      mediaReadyRef.current = true;
+      setMediaReady(true);
+      if (pendingEndLoadingRef.current) {
+        pendingEndLoadingRef.current = false;
+        queueMicrotask(() => dispatch(g => g.endLoading()));
+      }
       return;
     }
-    setCurrentImage(queue[idx]);
+
+    let cancelled = false;
+    mediaReadyRef.current = false;
+    setMediaReady(false);
+
+    void preloadMediaUrls(state.duel.imageQueue).then(() => {
+      if (cancelled) return;
+      mediaReadyRef.current = true;
+      setMediaReady(true);
+      if (pendingEndLoadingRef.current) {
+        pendingEndLoadingRef.current = false;
+        queueMicrotask(() => {
+          dispatch(g => g.endLoading());
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
-    state.duel?.imageIndex,
-    state.duel?.imageQueue,
+    state.duel?.attackerId,
+    state.duel?.defenderId,
+    duelQueueLength,
+    state.status,
+    state.players,
+    dispatch,
+  ]);
+
+  // Wybierz bieżące medium z kolejki (bez zależności od całego obiektu duel — unikaj re-run co tick)
+  useEffect(() => {
+    if (!duelSessionId || duelQueueLength === 0 || !duelImageQueue) return;
+
+    if (duelImageIndex >= duelQueueLength) {
+      if (!endedByQueueRef.current) {
+        endedByQueueRef.current = true;
+        dispatch(g => g.endDuel());
+      }
+      return;
+    }
+    setCurrentImage(duelImageQueue[duelImageIndex]);
+  }, [
+    duelSessionId,
+    duelImageIndex,
+    duelImageQueue,
+    duelQueueLength,
     dispatch,
     setCurrentImage,
-    state.duel,
   ]);
 
   const onCorrect = (opts?: AnswerOpts) => {
@@ -321,6 +424,7 @@ export default function DuelDialog() {
       g.lockTick();
     });
     clearPendingAnswerTimeout();
+    const correctRevealMs = useGameConfigStore.getState().correctRevealMs;
     answerTimeoutRef.current = window.setTimeout(() => {
       dispatch(g => {
         if (!g.snapshot.duel) return;
@@ -330,7 +434,7 @@ export default function DuelDialog() {
       answeringRef.current = false;
       setShowResult(null);
       setButtonsDisabled(false);
-    }, 2000);
+    }, correctRevealMs);
   };
 
   const onWrong = (opts?: AnswerOpts) => {
@@ -348,8 +452,10 @@ export default function DuelDialog() {
     setShowResult({ type: "wrong", message: imageName });
     setButtonsDisabled(true);
     playGameSound("bad.mp3");
+    // Pass: timer gracza dalej leci (bez lockTick)
 
     clearPendingAnswerTimeout();
+    const passRevealMs = useGameConfigStore.getState().passRevealMs;
     answerTimeoutRef.current = window.setTimeout(() => {
       dispatch(g => {
         if (!g.snapshot.duel) return;
@@ -359,7 +465,7 @@ export default function DuelDialog() {
       answeringRef.current = false;
       setShowResult(null);
       setButtonsDisabled(false);
-    }, 3000);
+    }, passRevealMs);
   };
 
   onCorrectRef.current = onCorrect;
@@ -372,25 +478,34 @@ export default function DuelDialog() {
 
   onCloseRef.current = onClose;
 
-  if(showWinner && state.lastWinner)
-  {
+  if (showWinner && state.lastWinner) {
     return (
       <WinnerOverlay
-        winnerId={state.lastWinner!}
+        winnerId={state.lastWinner}
         duration={5000}
         onFinish={() => {
           setShowWinner(false);
+          dispatch(g => {
+            g.acknowledgeWinner();
+            g.reloadFromStore(useGameConfigStore.getState().gridSize);
+          });
         }}
       />
-    )
+    );
   }
 
   if (!state.duel) return null;
 
-  const attacker = state.players[state.duel?.attackerId];
+  const attacker = state.players[state.duel.attackerId];
   const defender = state.players[state.duel.defenderId];
+  if (!attacker || !defender) return null;
+
   const currentTurnPlayer = state.players[state.duel.currentTurn];
+  if (!currentTurnPlayer) return null;
+
   const isMusicDuel = isMusicCategory(defender.category);
+  const isTextDuel = isTextCategory(defender.category);
+  const mediaLabel = isMusicDuel ? "Dźwięk" : isTextDuel ? "Tekst" : "Obraz";
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -398,7 +513,6 @@ export default function DuelDialog() {
         showCloseButton={false}
         className="fixed min-w-full max-w-full text-white max-h-full w-screen h-screen p-0 gap-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"
       >
-        {/* Header z przyciskiem zamknięcia */}
         <DialogHeader className="absolute top-0 left-1/2 transform -translate-x-1/2 z-10">
           <div className="flex items-center justify-between rounded-lg px-6 py-3">
             <DialogTitle className="text-2xl text-white ">
@@ -407,7 +521,6 @@ export default function DuelDialog() {
           </div>
         </DialogHeader>
 
-        {/* Główny layout — niebieskie tło gry, przy odpowiedzi przejście w zielony / czerwony */}
         <div className="relative h-full">
           <div
             className={`pointer-events-none absolute inset-0 bg-gradient-to-b from-indigo-600 to-blue-900 transition-opacity duration-700 ease-in-out ${
@@ -425,75 +538,79 @@ export default function DuelDialog() {
             }`}
           />
           <div className="relative z-10 grid h-full grid-cols-6 gap-0">
-          
-          {/* Lewa kolumna - Atakujący */}
-          <div className="col-span-1 flex flex-col items-center justify-center p-8 relative">
-            <div className="absolute top-8 text-white text-sm font-medium">
-              ATAKUJĄCY
+            <div className="col-span-1 flex flex-col items-center justify-center p-8 relative">
+              <div className="absolute top-8 text-white text-sm font-medium">
+                ATAKUJĄCY
+              </div>
+
+              <div className="mb-8">
+                <div className={`relative ${currentTurnPlayer.id === attacker.id ? "ring-4 ring-yellow-400 rounded-full ring-pulse" : ""}`}>
+                  <Avatar className="w-32 h-32 border-4 border-white shadow-2xl">
+                    <AvatarImage src={attacker.avatarUrl} alt={attacker.nickname} />
+                  </Avatar>
+                  {currentTurnPlayer.id === attacker.id && (
+                    <div className="absolute -top-2 -right-2 bg-yellow-400 text-black px-2 py-1 rounded-full text-xs font-bold">
+                      TURA
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="text-center text-white mb-8">
+                <ChessTimer playerId={attacker.id} ticks={currentTurnPlayer.id === attacker.id} />
+              </div>
             </div>
-            
-            {/* Avatar atakującego */}
-            <div className="mb-8">
-              <div className={`relative ${currentTurnPlayer.id === attacker.id ? 'ring-4 ring-yellow-400 rounded-full ring-pulse' : ''}`}>
-                <Avatar className="w-32 h-32 border-4 border-white shadow-2xl">
-                  <AvatarImage src={attacker.avatarUrl} alt={attacker.nickname} />
-                </Avatar>
-                {currentTurnPlayer.id === attacker.id && (
-                  <div className="absolute -top-2 -right-2 bg-yellow-400 text-black px-2 py-1 rounded-full text-xs font-bold">
-                    TURA
+
+            <div className="col-span-4 flex flex-col items-center justify-center p-8 relative">
+              <div className="flex-1 w-full flex items-center justify-center">
+                {currentImage && !isMusicDuel && !isTextDuel && (
+                  <div className="flex h-[70vh] w-full items-center justify-center px-4">
+                    <div className="relative flex h-[65vh] w-full max-w-6xl items-center justify-center overflow-hidden rounded-xl bg-black/20 shadow-2xl">
+                      <Image
+                        key={currentImage}
+                        src={currentImage}
+                        alt="Pytanie do zgadnięcia"
+                        fill
+                        className="object-contain p-2"
+                        priority
+                        unoptimized
+                      />
+                    </div>
                   </div>
                 )}
-              </div>
-            </div>
 
-            {/* Nazwa i dane atakującego */}
-            <div className="text-center text-white mb-8">
-              <ChessTimer playerId={attacker.id} />
-            </div>
-          </div>
-
-          {/* Środkowa kolumna - Zdjęcie i przyciski */}
-          <div className="col-span-4 flex flex-col items-center justify-center p-8 relative">
-            
-            {/* Media (obraz lub dźwięk) */}
-            <div className="flex-1 w-full flex items-center justify-center">
-            {currentImage && !isMusicDuel && (
-              <div className="flex-1 w-full flex items-center justify-center h-[70vh]">
-                <div className="relative w-full h-full max-w-6xl max-h-[70vh]">
-                  <Image
-                    src={currentImage}
-                    alt="Pytanie do zgadnięcia"
-                    fill
-                    className="object-contain rounded-xl"
-                    priority
-                  />
-                </div>
-              </div>
-            )}
-
-            {currentImage && isMusicDuel && (
-              <div className="flex h-[70vh] w-full max-w-6xl items-center justify-center">
-                <div className="w-full max-w-3xl rounded-2xl border border-white/20 bg-black/25 p-8 backdrop-blur-sm">
-                  <div className="mb-6 text-center text-white/90">
-                    Odtwarzany dźwięk
+                {currentImage && isTextDuel && (
+                  <div className="flex h-[70vh] w-full max-w-6xl items-center justify-center px-6">
+                    <p className="text-center text-7xl font-extrabold leading-tight tracking-wide text-white drop-shadow-lg md:text-8xl">
+                      {textContent ?? "…"}
+                    </p>
                   </div>
-                  <div className="flex h-40 items-end justify-center gap-2">
-                    {Array.from({ length: 18 }).map((_, i) => (
-                      <span
-                        key={i}
-                        className={`w-3 rounded-full bg-cyan-300 ${isAudioPlaying ? "animate-pulse" : "opacity-50"}`}
-                        style={{
-                          height: `${28 + ((i * 13) % 70)}px`,
-                          animationDelay: `${i * 70}ms`,
-                          animationDuration: "650ms",
-                        }}
-                      />
-                    ))}
+                )}
+
+                {currentImage && isMusicDuel && (
+                  <div className="flex h-[70vh] w-full max-w-6xl items-center justify-center">
+                    <div className="w-full max-w-3xl rounded-2xl border border-white/20 bg-black/25 p-8 backdrop-blur-sm">
+                      <div className="mb-6 text-center text-white/90">
+                        Odtwarzany dźwięk
+                      </div>
+                      <div className="flex h-40 items-end justify-center gap-2">
+                        {Array.from({ length: 18 }).map((_, i) => (
+                          <span
+                            key={i}
+                            className={`w-3 rounded-full bg-cyan-300 ${isAudioPlaying ? "animate-pulse" : "opacity-50"}`}
+                            style={{
+                              height: `${28 + ((i * 13) % 70)}px`,
+                              animationDelay: `${i * 70}ms`,
+                              animationDuration: "650ms",
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
+
               </div>
-            )}
-            </div>
 
               <div className="z-20 mb-6 flex h-28 w-full max-w-5xl items-center justify-center px-6">
                 <span
@@ -506,57 +623,40 @@ export default function DuelDialog() {
                 </span>
               </div>
 
-            {/* Przyciski akcji */}
-            {/* <div className="w-full max-w-2xl flex space-x-6">
-              <Button 
-                className="flex-1 font-bold bg-green-600 hover:bg-green-700 shadow-lg transform hover:scale-105 transition-all" 
-                onClick={onCorrect}
-                disabled={buttonsDisabled}
-              >
-                ✓ POPRAWNA
-              </Button>
-              <Button 
-                variant="destructive" 
-                className="flex-1 font-bold bg-red-600 hover:bg-red-700 shadow-lg transform hover:scale-105 transition-all" 
-                onClick={onWrong}
-                disabled={buttonsDisabled}
-              >
-                ✗ PAS
-              </Button>
-            </div> */}
-
-            {/* Informacje o medium */}
-            {state.status == "loading" && <CountdownOverlay onFinish={endLoading}/>}
-            <div className="mt-4 text-center text-white/70 text-sm">
-              {isMusicDuel ? "Dźwięk" : "Obraz"} {(state.duel?.imageIndex || 0) + 1} | Kategoria: {formatDisplayLabel(defender.category)}
-            </div>
-          </div>
-
-          {/* Prawa kolumna - Broniący */}
-          <div className="col-span-1 flex flex-col items-center justify-center p-8 relative">
-            <div className="absolute top-8 text-white text-sm font-medium">
-              BRONIĄCY
-            </div>
-            
-            {/* Avatar broniącego */}
-            <div className="mb-8">
-              <div className={`relative ${currentTurnPlayer.id === defender.id ? 'ring-4 ring-yellow-400 rounded-full ring-pulse' : ''}`}>
-                <Avatar className="w-32 h-32 border-4 border-white shadow-2xl">
-                  <AvatarImage src={defender.avatarUrl} alt={defender.nickname} />
-                </Avatar>
-                {currentTurnPlayer.id === defender.id && (
-                  <div className="absolute -top-2 -left-2 bg-yellow-400 text-black px-2 py-1 rounded-full text-xs font-bold">
-                    TURA
-                  </div>
-                )}
+              {state.status === "loading" && (
+                <CountdownOverlay
+                  onFinish={tryEndLoading}
+                  subtitle={mediaReady ? undefined : "Wczytywanie mediów…"}
+                />
+              )}
+              <div className="mt-4 text-center text-white/70 text-sm">
+                {mediaLabel} {(state.duel?.imageIndex || 0) + 1} | Kategoria:{" "}
+                {formatDisplayLabel(defender.category)}
               </div>
             </div>
 
-            {/* Nazwa i dane broniącego */}
-            <div className="text-center text-white mb-8">
-              <ChessTimer playerId={defender.id} />
+            <div className="col-span-1 flex flex-col items-center justify-center p-8 relative">
+              <div className="absolute top-8 text-white text-sm font-medium">
+                BRONIĄCY
+              </div>
+
+              <div className="mb-8">
+                <div className={`relative ${currentTurnPlayer.id === defender.id ? "ring-4 ring-yellow-400 rounded-full ring-pulse" : ""}`}>
+                  <Avatar className="w-32 h-32 border-4 border-white shadow-2xl">
+                    <AvatarImage src={defender.avatarUrl} alt={defender.nickname} />
+                  </Avatar>
+                  {currentTurnPlayer.id === defender.id && (
+                    <div className="absolute -top-2 -left-2 bg-yellow-400 text-black px-2 py-1 rounded-full text-xs font-bold">
+                      TURA
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="text-center text-white mb-8">
+                <ChessTimer playerId={defender.id} ticks={currentTurnPlayer.id === defender.id} />
+              </div>
             </div>
-          </div>
           </div>
         </div>
       </DialogContent>

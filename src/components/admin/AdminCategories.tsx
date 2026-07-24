@@ -2,15 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
-import { Music, Pencil, Plus, RefreshCw, Shuffle, Trash2 } from "lucide-react";
+import { Music, Pencil, Plus, RefreshCw, Shuffle, Trash2, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Category } from "@/lib/types";
-import { getImageNameFromPath } from "@/lib/imageUtils";
-import { isMusicCategory } from "@/lib/imageUtils";
+import { getImageNameFromPath, isMusicCategory, isTextCategory } from "@/lib/imageUtils";
 
 const isAudioPath = (path: string) => /\.(mp3|wav|ogg|m4a)$/i.test(path);
+const isTextPath = (path: string) => /\.txt$/i.test(path);
 
 export default function AdminCategories() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -202,7 +202,7 @@ export default function AdminCategories() {
             </Button>
           </div>
           <p className="text-[10px] text-muted-foreground leading-tight">
-            Prefiks <code>_</code> = kategoria muzyczna
+            Prefiks <code>_</code> = muzyka, <code>-</code> = tekst
           </p>
         </div>
 
@@ -262,6 +262,11 @@ export default function AdminCategories() {
                     Muzyka
                   </span>
                 )}
+                {isTextCategory(selectedCategory.id) && (
+                  <span className="rounded bg-sky-100 px-2 py-0.5 text-xs text-sky-700">
+                    Tekst
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 <Input
@@ -278,7 +283,13 @@ export default function AdminCategories() {
                   Dodaj plik
                   <input
                     type="file"
-                    accept="image/*,audio/*"
+                    accept={
+                      isMusicCategory(selectedCategory.id)
+                        ? "audio/*"
+                        : isTextCategory(selectedCategory.id)
+                          ? ".txt,text/plain"
+                          : "image/*"
+                    }
                     className="hidden"
                     onChange={e => {
                       const file = e.target.files?.[0];
@@ -309,6 +320,7 @@ export default function AdminCategories() {
                     const displayName = getImageNameFromPath(url);
                     const isEditing = editingFile === filename;
                     const isAudio = isAudioPath(url);
+                    const isText = isTextPath(url);
 
                     return (
                       <div
@@ -322,6 +334,14 @@ export default function AdminCategories() {
                               <span className="text-[10px] px-2 text-center line-clamp-2">
                                 {displayName}
                               </span>
+                            </div>
+                          ) : isText ? (
+                            <div className="flex h-full flex-col items-center justify-center gap-2 p-3 text-muted-foreground">
+                              <FileText className="h-8 w-8" />
+                              <span className="text-xs font-semibold text-foreground text-center line-clamp-3">
+                                {displayName}
+                              </span>
+                              <span className="text-[10px] text-center">.txt</span>
                             </div>
                           ) : (
                             <Image

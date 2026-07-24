@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useGameContext } from "@/components/GameProvider";
+import { useGameConfigStore } from "@/stores/useGameConfigStore";
 
 let lastStartDuelToken = 0;
 
@@ -9,7 +10,7 @@ export default function StartDuelListener() {
   const { state, dispatch } = useGameContext();
   const duelActiveRef = useRef(false);
 
-  duelActiveRef.current = !!state.duel;
+  duelActiveRef.current = !!state.duel || state.status === "finished";
 
   useEffect(() => {
     const init = async () => {
@@ -36,7 +37,16 @@ export default function StartDuelListener() {
         ) {
           lastStartDuelToken = data.startDuelToken;
           const { attackerId, defenderId } = data.pendingStartDuel;
-          dispatch(g => g.startDuel(attackerId, defenderId));
+
+          // Konsumuj od razu, żeby po końcu rundy pending nie odpalił jej ponownie.
+          await fetch("/api/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ consumeStartDuel: true }),
+          }).catch(() => undefined);
+
+          const duration = useGameConfigStore.getState().roundDurationSeconds;
+          dispatch(g => g.startDuel(attackerId, defenderId, duration));
         }
       } catch {
         // ignore

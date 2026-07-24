@@ -150,7 +150,8 @@ export default function PlayerManager() {
 
   const startDuel = () => {
     if (attacker && defender && attacker !== defender) {
-      dispatch(g => g.startDuel(attacker, defender));
+      const duration = useGameConfigStore.getState().roundDurationSeconds;
+      dispatch(g => g.startDuel(attacker, defender, duration));
     }
   };
 

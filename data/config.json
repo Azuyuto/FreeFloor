@@ -1,3 +1,6 @@
 {
-  "gridSize": 5
+  "gridSize": 5,
+  "roundDurationSeconds": 30,
+  "correctRevealMs": 1000,
+  "passRevealMs": 1500
 }

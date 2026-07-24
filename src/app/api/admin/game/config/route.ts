@@ -11,7 +11,12 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const config = await saveGameConfig({ gridSize: body.gridSize });
+    const config = await saveGameConfig({
+      gridSize: body.gridSize,
+      roundDurationSeconds: body.roundDurationSeconds,
+      correctRevealMs: body.correctRevealMs,
+      passRevealMs: body.passRevealMs,
+    });
     setGridSize(config.gridSize);
     touchConfigUpdated();
     return NextResponse.json(config);

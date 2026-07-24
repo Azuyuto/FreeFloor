@@ -4,9 +4,11 @@ import type { GameState, Player } from "./types";
 import { shuffleBoard } from "./boardGenerator";
 import { buildGameStateFromPlayers } from "./buildGameState";
 import { usePlayersStore } from "@/stores/usePlayersStore";
+import { DEFAULT_ROUND_DURATION_SECONDS } from "./gameConfigConstants";
 
 export class GameEngine {
   private state: GameState;
+  private endingDuel = false;
 
   constructor(initial: GameState) {
     this.state = initial;
@@ -25,18 +27,23 @@ export class GameEngine {
   
 
   /** Rozpocznij pojedynek – wywoływane przez front */
-  startDuel(attackerId: string, defenderId: string) {
+  startDuel(attackerId: string, defenderId: string, roundDurationSeconds?: number) {
     const attacker = this.state.players[attackerId];
     const defender = this.state.players[defenderId];
     if (!attacker || !defender) throw new Error("Nie ma takiego gracza");
 
+    const durationMs =
+      Math.max(1, roundDurationSeconds ?? DEFAULT_ROUND_DURATION_SECONDS) * 1000;
+
+    this.endingDuel = false;
     this.setState(draft => {
-      // Zresetuj timery do 45 000 ms
-      draft.players[attackerId].timeLeft = 45_000;
-      draft.players[defenderId].timeLeft = 45_000;
+      draft.players[attackerId].timeLeft = durationMs;
+      draft.players[defenderId].timeLeft = durationMs;
 
       draft.status = "loading";
       draft.locked = true;
+      draft.lastWinner = undefined;
+      draft.lastWinnerWasDefender = undefined;
       draft.duel = {
         attackerId,
         defenderId,
@@ -58,8 +65,10 @@ export class GameEngine {
 
   endLoading() {
     this.setState(draft => {
+      if (draft.status !== "loading" || !draft.duel) return;
       draft.status = "duel";
       draft.locked = false;
+      draft.duel.startedAt = Date.now();
     });
   }
 
@@ -77,7 +86,7 @@ export class GameEngine {
     });
   }
 
-  /** Pass/niepoprawna – blokada 3 s */
+  /** Pass/niepoprawna — czas gracza leci dalej, tylko pokazujemy odpowiedź i idziemy dalej */
   answerWrong(playerId: string) {
     this.enforceTurn(playerId);
     this.setState(draft => {
@@ -95,9 +104,11 @@ export class GameEngine {
   /** Aktualizuj timery; zwraca id przegranego lub null */
 tick() {
   const duel = this.state.duel;
-  if (!duel) return null;
+  if (!duel || this.endingDuel) return null;
+  if (this.state.status !== "duel") return null;
   const now = Date.now();
   const current = this.state.players[duel.currentTurn];
+  if (!current) return null;
 
   // Jeżeli jest blokada/pauza, przesuń punkt startu, ale nie odejmuj czasu
   if (current.lockedUntil > now || this.state.locked) {
@@ -142,6 +153,7 @@ unlockTick() {
 
   /** Anulowanie pojedynku bez zmian na planszy (jak Esc w grze) */
   cancelDuel() {
+    this.endingDuel = false;
     this.setState(draft => {
       draft.duel = undefined;
       draft.status = "waiting";
@@ -151,11 +163,31 @@ unlockTick() {
     });
   }
 
+  /** Po overlayu zwycięzcy wróć do stanu oczekiwania */
+  acknowledgeWinner() {
+    this.setState(draft => {
+      if (draft.status !== "finished") return;
+      draft.status = "waiting";
+      draft.lastWinner = undefined;
+      draft.lastWinnerWasDefender = undefined;
+      draft.locked = false;
+      draft.duel = undefined;
+    });
+  }
+
   /** Zakończenie rundy i przejęcie pola */
 endDuel() {
-  const duel = this.state.duel!;
+  if (this.endingDuel || !this.state.duel) return;
+  this.endingDuel = true;
+
+  const duel = this.state.duel;
   const pA = this.state.players[duel.attackerId];
   const pD = this.state.players[duel.defenderId];
+  if (!pA || !pD) {
+    this.endingDuel = false;
+    this.cancelDuel();
+    return;
+  }
   const unplayedCategory = pA.category;
 
   // wybierz zwycięzcę na podstawie większego pozostałego czasu
@@ -194,6 +226,7 @@ endDuel() {
     // zapisz zwycięzcę w stanie
     draft.lastWinner = winnerId;
     draft.lastWinnerWasDefender = winnerId === duel.defenderId;
+    draft.locked = false;
   });
 
   // zsynchronizuj panel graczy (zustand) po zmianach w silniku
@@ -218,6 +251,17 @@ endDuel() {
   }
 
   reloadFromStore(gridSize?: number) {
+    // Nie nadpisuj aktywnego pojedynku ani ekranu zwycięzcy — sync z dysku
+    // po endDuel potrafił wyczyścić finished i odpalać kolejne starty.
+    if (
+      this.state.status === "duel" ||
+      this.state.status === "loading" ||
+      this.state.status === "finished" ||
+      this.state.duel
+    ) {
+      return;
+    }
+
     const { players } = usePlayersStore.getState();
     const size = gridSize ?? this.state.gridSize;
     const board = buildGameStateFromPlayers(players, size);
@@ -231,6 +275,7 @@ endDuel() {
       draft.lastWinner = undefined;
       draft.lastWinnerWasDefender = undefined;
     });
+    this.endingDuel = false;
   }
 
   shuffleBoard() {
@@ -253,11 +298,4 @@ endDuel() {
       });
     });
   }
-
-  // Usuń tę metodę - logika przeniesiona do answerCorrect/answerWrong
-  // private switchTurn() {
-  //   const duel = this.state.duel!;
-  //   duel.imageIndex++;
-  //   duel.currentTurn = duel.currentTurn === duel.attackerId ? duel.defenderId : duel.attackerId;
-  // }
 }

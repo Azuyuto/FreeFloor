@@ -9,20 +9,21 @@ import type { DuelSyncInfo } from "@/lib/serverSync";
 export type GameSyncPayload = {
   currentImage: string | null;
   nextImage: string | null;
+  afterNextImage: string | null;
   duelInfo: DuelSyncInfo | null;
 };
 
 export function buildGameSyncPayload(state: GameState): GameSyncPayload {
   const duel = state.duel;
   if (!duel) {
-    return { currentImage: null, nextImage: null, duelInfo: null };
+    return { currentImage: null, nextImage: null, afterNextImage: null, duelInfo: null };
   }
 
   const attacker = state.players[duel.attackerId];
   const defender = state.players[duel.defenderId];
   const currentTurn = state.players[duel.currentTurn];
   if (!attacker || !defender || !currentTurn) {
-    return { currentImage: null, nextImage: null, duelInfo: null };
+    return { currentImage: null, nextImage: null, afterNextImage: null, duelInfo: null };
   }
 
   const queue = duel.imageQueue;
@@ -30,10 +31,12 @@ export function buildGameSyncPayload(state: GameState): GameSyncPayload {
   const currentImage =
     queue.length > 0 ? (queue[idx] ?? null) : useGameStore.getState().currentImage;
   const nextImage = idx + 1 < queue.length ? queue[idx + 1] : null;
+  const afterNextImage = idx + 2 < queue.length ? queue[idx + 2] : null;
 
   return {
     currentImage,
     nextImage,
+    afterNextImage,
     duelInfo: {
       attackerNickname: attacker.nickname,
       defenderNickname: defender.nickname,
@@ -50,6 +53,7 @@ function payloadsEqual(a: GameSyncPayload, b: GameSyncPayload) {
   return (
     a.currentImage === b.currentImage &&
     a.nextImage === b.nextImage &&
+    a.afterNextImage === b.afterNextImage &&
     a.duelInfo?.imageIndex === b.duelInfo?.imageIndex &&
     a.duelInfo?.status === b.duelInfo?.status &&
     a.duelInfo?.currentTurnNickname === b.duelInfo?.currentTurnNickname &&

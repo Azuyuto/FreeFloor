@@ -12,7 +12,7 @@ export const useGameContext = () => useContext(GameCtx)!;
 function useGame(initial: GameState) {
   const [snap, setSnap] = useState(initial);
   const engineRef = useRef(new GameEngine(initial));
-  const { players } = usePlayersStore(); // ← pobierz
+  const { players } = usePlayersStore();
 
   const dispatch = <T,>(fn: (g: GameEngine) => T): T => {
     const result = fn(engineRef.current);
@@ -20,10 +20,12 @@ function useGame(initial: GameState) {
     return result;
   };
 
-  
   useEffect(() => {
     dispatch(engine => {
-      engine.setPlayers(players); // dodaj setPlayers w GameEngine
+      const status = engine.snapshot.status;
+      // Nie nadpisuj graczy w trakcie rundy — sync ze store'a może resetować timeLeft.
+      if (status === "duel" || status === "loading" || status === "finished") return;
+      engine.setPlayers(players);
     });
   }, [players]);
 

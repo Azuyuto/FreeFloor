@@ -1,11 +1,16 @@
 export const isMusicCategory = (name: string) => name.trim().startsWith("_");
+export const isTextCategory = (name: string) => name.trim().startsWith("-");
+
+export const isAudioPath = (path: string | null | undefined) =>
+  !!path && /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(path);
 
 export function formatDisplayLabel(text: string): string {
   if (!text) return "";
   try {
-    return decodeURIComponent(text).replace(/_/g, " ");
+    const decoded = decodeURIComponent(text).replace(/_/g, " ");
+    return decoded.replace(/^[-_]+/, "").trim() || decoded;
   } catch {
-    return text.replace(/_/g, " ");
+    return text.replace(/_/g, " ").replace(/^[-_]+/, "").trim() || text;
   }
 }
 
