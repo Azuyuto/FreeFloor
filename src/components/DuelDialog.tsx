@@ -24,6 +24,15 @@ import {
 import { shuffleArray } from "@/lib/shuffleArray";
 import { playGameSound, preloadGameSounds, unlockGameSounds } from "@/lib/gameSounds";
 import {
+  clearDuelMusicCache,
+  pauseDuelMusic,
+  playDuelMusic,
+  preloadDuelMusic,
+  preloadDuelMusicMany,
+  stopDuelMusic,
+  subscribeDuelMusic,
+} from "@/lib/duelMusicPlayer";
+import {
   clearMediaCaches,
   getCachedText,
   isTextPath,
@@ -36,8 +45,6 @@ export default function DuelDialog() {
   const [categories, setCategories] = useState<Category[]>([]);
   const currentImage = useGameStore(s => s.currentImage);
   const setCurrentImage = useGameStore(s => s.setCurrentImage);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioSrcRef = useRef<string | null>(null);
   const answerTimeoutRef = useRef<number | null>(null);
   type AnswerOpts = { fromAdmin?: boolean };
   const onCorrectRef = useRef<(opts?: AnswerOpts) => void>(() => {});
@@ -59,25 +66,15 @@ export default function DuelDialog() {
   const duelDefenderId = state.duel?.defenderId ?? null;
   const duelDefenderCategory = duelDefenderId ? state.players[duelDefenderId]?.category ?? "" : "";
   const duelImageIndex = state.duel?.imageIndex ?? 0;
-  const duelImageQueue = state.duel?.imageQueue;
-  const duelQueueLength = duelImageQueue?.length ?? 0;
+  const duelQueueLength = state.duel?.imageQueue?.length ?? 0;
+  // String URL — stabilny między tickami timera (nie cała tablica imageQueue)
+  const duelQueueUrl = state.duel?.imageQueue?.[duelImageIndex] ?? null;
 
   const clearPendingAnswerTimeout = () => {
     if (answerTimeoutRef.current !== null) {
       window.clearTimeout(answerTimeoutRef.current);
       answerTimeoutRef.current = null;
     }
-  };
-
-  const resetAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current.src = "";
-    }
-    audioRef.current = null;
-    audioSrcRef.current = null;
-    setIsAudioPlaying(false);
   };
 
   const resetLocalDuelUi = () => {
@@ -106,6 +103,10 @@ export default function DuelDialog() {
 
   useEffect(() => {
     preloadGameSounds();
+    return subscribeDuelMusic(setIsAudioPlaying);
+  }, []);
+
+  useEffect(() => {
     const unlock = () => unlockGameSounds();
     window.addEventListener("pointerdown", unlock, { capture: true });
     window.addEventListener("keydown", unlock, { capture: true });
@@ -123,7 +124,8 @@ export default function DuelDialog() {
     if (!hadDuelRef.current) return;
     hadDuelRef.current = false;
     clearPendingAnswerTimeout();
-    resetAudio();
+    stopDuelMusic();
+    clearDuelMusicCache();
     resetLocalDuelUi();
     setCurrentImage(null);
   }, [state.duel, setCurrentImage]);
@@ -173,49 +175,38 @@ export default function DuelDialog() {
     });
   }, [currentImage]);
 
-  // Muzyka kategorii _ — jak w oryginale, ale bez niszczenia elementu przy zmianie utworu
+  // Muzyka z kolejki silnika (duelQueueUrl)
   useEffect(() => {
-    if (!duelDefenderId || !currentImage || state.status !== "duel") {
-      resetAudio();
-      return;
-    }
+    const isMusic = !!duelDefenderId && isMusicCategory(duelDefenderCategory);
+    const url = duelQueueUrl;
 
-    if (!isMusicCategory(duelDefenderCategory)) {
-      resetAudio();
-      return;
-    }
-
-    // Ten sam utwór — tylko wznów, jeśli pauza
-    if (audioRef.current && audioSrcRef.current === currentImage) {
-      if (audioRef.current.paused) {
-        void audioRef.current.play().catch(() => setIsAudioPlaying(false));
+    if (!isMusic || !url) {
+      if (state.status !== "loading" && state.status !== "duel") {
+        pauseDuelMusic();
       }
       return;
     }
 
-    const attachHandlers = (audio: HTMLAudioElement) => {
-      audio.loop = true;
-      audio.onplay = () => setIsAudioPlaying(true);
-      audio.onpause = () => setIsAudioPlaying(false);
-      audio.onended = () => setIsAudioPlaying(false);
-    };
-
-    if (audioRef.current) {
-      // Ten sam element = przeglądarka pozwala na kolejne play()
-      const audio = audioRef.current;
-      attachHandlers(audio);
-      audioSrcRef.current = currentImage;
-      audio.src = currentImage;
-      void audio.play().catch(() => setIsAudioPlaying(false));
+    if (state.status === "loading") {
+      const queue = state.duel?.imageQueue ?? [];
+      if (queue.length > 0) {
+        preloadDuelMusicMany(queue);
+      } else {
+        preloadDuelMusic(url);
+      }
       return;
     }
 
-    const audio = new Audio(currentImage);
-    attachHandlers(audio);
-    audioRef.current = audio;
-    audioSrcRef.current = currentImage;
-    void audio.play().catch(() => setIsAudioPlaying(false));
-  }, [currentImage, state.status, duelDefenderId, duelDefenderCategory]);
+    if (state.status === "duel") {
+      playDuelMusic(url);
+      const queue = state.duel?.imageQueue ?? [];
+      const next = queue.slice(duelImageIndex + 1, duelImageIndex + 6);
+      if (next.length) preloadDuelMusicMany(next);
+      return;
+    }
+
+    pauseDuelMusic();
+  }, [duelQueueUrl, state.status, duelDefenderId, duelDefenderCategory, duelImageIndex]);
 
   useEffect(() => {
     if (!currentImage || !isTextPath(currentImage)) {
@@ -249,7 +240,7 @@ export default function DuelDialog() {
     if (!duelSessionId) {
       if (duelSessionRef.current !== null) {
         clearPendingAnswerTimeout();
-        resetAudio();
+        stopDuelMusic();
         resetLocalDuelUi();
         setCurrentImage(null);
       }
@@ -384,9 +375,9 @@ export default function DuelDialog() {
     dispatch,
   ]);
 
-  // Wybierz bieżące medium z kolejki (bez zależności od całego obiektu duel — unikaj re-run co tick)
+  // Wybierz bieżące medium z kolejki (URL string, nie referencja tablicy — unikaj re-run co tick)
   useEffect(() => {
-    if (!duelSessionId || duelQueueLength === 0 || !duelImageQueue) return;
+    if (!duelSessionId || duelQueueLength === 0) return;
 
     if (duelImageIndex >= duelQueueLength) {
       if (!endedByQueueRef.current) {
@@ -395,12 +386,14 @@ export default function DuelDialog() {
       }
       return;
     }
-    setCurrentImage(duelImageQueue[duelImageIndex]);
+    if (duelQueueUrl) {
+      setCurrentImage(duelQueueUrl);
+    }
   }, [
     duelSessionId,
     duelImageIndex,
-    duelImageQueue,
     duelQueueLength,
+    duelQueueUrl,
     dispatch,
     setCurrentImage,
   ]);
@@ -603,6 +596,7 @@ export default function DuelDialog() {
                               animationDelay: `${i * 70}ms`,
                               animationDuration: "650ms",
                             }}
+                            title={isAudioPlaying ? "playing" : "paused"}
                           />
                         ))}
                       </div>

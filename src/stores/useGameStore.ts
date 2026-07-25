@@ -26,7 +26,7 @@ export const useGameStore = create<GameStore>(set => ({
       }
     }
 
-    set({ currentImage: img });
+    set(state => (state.currentImage === img ? state : { currentImage: img }));
   },
   syncCurrentImageFromStorage: () => {
     set({ currentImage: getStoredCurrentImage() });

@@ -1,10 +1,9 @@
 {
-  "64e66ac7-f712-4863-ad97-6a67e972052d": {
-    "id": "64e66ac7-f712-4863-ad97-6a67e972052d",
-    "nickname": "FHFGHFGH",
+  "e31b922f-4036-473b-9b5f-012ddf300033": {
+    "nickname": " x xcx",
     "avatarUrl": "/api/media/avatars/alkohol_szczesliwe_piwo.png",
-    "category": "Stwory mityczne",
-    "color": "#1ABC9C",
+    "category": "Filmy Disneya",
+    "color": "#D6EAF8",
     "territory": [
       "0-0",
       "0-1",
@@ -32,19 +31,17 @@
       "4-3",
       "4-4"
     ],
-    "timeLeft": 30000,
+    "id": "e31b922f-4036-473b-9b5f-012ddf300033",
+    "timeLeft": 17824,
     "lockedUntil": 0
   },
-  "94014126-abdc-4d71-9dbd-ca6b9c8ba1e7": {
-    "nickname": "fdsgfdfg",
+  "c7d5cdc6-23db-440f-8d34-3c0e9dec9024": {
+    "nickname": "sdf",
     "avatarUrl": "/api/media/avatars/alkohol_kac_kawa_never_again.png",
-    "category": "_Soundtracki",
+    "category": "_Światowe Hity",
     "color": "#D6EAF8",
-    "territory": [
-      "2-3",
-      "2-0"
-    ],
-    "id": "94014126-abdc-4d71-9dbd-ca6b9c8ba1e7",
+    "territory": [],
+    "id": "c7d5cdc6-23db-440f-8d34-3c0e9dec9024",
     "timeLeft": 45000,
     "lockedUntil": 0
   }
