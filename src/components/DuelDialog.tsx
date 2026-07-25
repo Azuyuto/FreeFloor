@@ -574,7 +574,7 @@ export default function DuelDialog() {
 
                 {currentImage && isTextDuel && (
                   <div className="flex h-[70vh] w-full max-w-6xl items-center justify-center px-6">
-                    <p className="text-center text-7xl font-extrabold leading-tight tracking-wide text-white drop-shadow-lg md:text-8xl">
+                    <p className="text-center text-8xl font-extrabold leading-tight tracking-wide text-white drop-shadow-lg md:text-9xl">
                       {textContent ?? "…"}
                     </p>
                   </div>

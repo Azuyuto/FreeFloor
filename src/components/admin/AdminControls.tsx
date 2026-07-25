@@ -143,7 +143,7 @@ export default function AdminControls() {
         <p className="text-xs text-muted-foreground">Brak aktywnego pojedynku</p>
       )}
 
-      <div className="flex justify-center gap-3">
+      <div className="flex justify-center gap-1.5 sm:gap-3">
         <MediaPreview src={currentImage} label="Teraz" size="admin" />
         <MediaPreview src={nextImage} label="Następne" size="admin" />
         <MediaPreview src={afterNextImage} label="Za 2" size="admin" />
